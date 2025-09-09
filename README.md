@@ -17,7 +17,7 @@ ______________________________________________________________________
 
 ## Description
 
-Ai assisted segmentation of CT-scanned funerary urns.
+AI assisted segmentation of CT-scanned funerary urns.
 
 ## Installation
 
