@@ -30,6 +30,12 @@ dependencies:
   - rich=13.*
   - pre-commit=3.*
   - pytest=7.*
+  - opencv
+  - numpy
+  - Pillow
+  - tifffile
+  - tqdm
+  - pandas
 
   # --------- loggers --------- #
   # - wandb
@@ -43,3 +49,4 @@ dependencies:
       - hydra-optuna-sweeper
       - hydra-colorlog
       - rootutils
+      - ultralytics
