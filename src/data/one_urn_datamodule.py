@@ -1,19 +1,21 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Literal, Optional, Tuple
+import numpy as np
+from numpy.typing import NDArray
 from typing_extensions import override
 
 import torch
 from lightning import LightningDataModule
 from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split
 from pathlib import Path
-from os import getenv
 import tifffile as tiff
 
-class UrnDataset(Dataset):
+class UrnDataset(Dataset[Tuple[NDArray[Any], None]]):
     """A Dataset which iteratively opens the 3D scans of each urn as a ndarray.
 
     TODO: load the correect segments
     """
-    def __init__(self, correct_3D_segmentations: None, tiff_pic_dir: Path):
+    def __init__(self, target_segmentations_dir: None, tiff_pic_dir: Path):
+        self.target_segmentations_dir = target_segmentations_dir  # TODO: use it
         self.tiff_files = [file for file in tiff_pic_dir.iterdir() if file.name.endswith("tiff")]
 
     @override
@@ -21,7 +23,22 @@ class UrnDataset(Dataset):
         image = tiff.imread(self.tiff_files[i])
         correct_segments = None  # TODO:
         return image, correct_segments
-    
+
+class OneUrnDataset(Dataset[Tuple[NDArray[Any], None]]):
+    """A Dataset which iterate over the projections of one urn along a defined
+    axis.
+    """
+    def __init__(self, image: NDArray[Any], correct_segments: None, projection_axis: Literal["x", "y", "z"]="z") -> None:
+        self.projection_axis = {k: i for i, k in enumerate(("z", "y", "x"))}[projection_axis]
+        self.image = image
+        self.correct_segments = correct_segments
+
+    @override
+    def __getitem__(self, index: int) -> Tuple[NDArray[Any], None]:
+        return (
+            np.take(self.image, indices=index, axis=self.projection_axis),
+            None
+        )
 
 class OneUrnDataModule(LightningDataModule):
     """`LightningDataModule` returning segments from a tiff file of one funeral urn.
@@ -66,7 +83,7 @@ class OneUrnDataModule(LightningDataModule):
         self,
         data_dir: str = "data/",
         train_val_test_split: Tuple[int, int, int] = (0, 0, 1),
-        batch_size: int = 1,
+        batch_size: int = 25,  # frames per batch
         num_workers: int = 0,
         pin_memory: bool = False,
     ) -> None:
