@@ -5,6 +5,7 @@ from typing_extensions import override
 
 import torch
 from lightning import LightningDataModule
+from torchvision import transforms
 from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split
 from pathlib import Path
 import tifffile as tiff
@@ -81,7 +82,7 @@ class OneUrnDataModule(LightningDataModule):
 
     def __init__(
         self,
-        data_dir: str = "data/",
+        filename: str,
         train_val_test_split: Tuple[int, int, int] = (0, 0, 1),
         batch_size: int = 25,  # frames per batch
         num_workers: int = 0,
@@ -102,13 +103,14 @@ class OneUrnDataModule(LightningDataModule):
         self.save_hyperparameters(logger=False)
 
         # data transformations
+        # empty for now
         self.transforms = transforms.Compose(
             []
         )
 
-        self.data_train: Optional[Dataset] = None
-        self.data_val: Optional[Dataset] = None
-        self.data_test: Optional[Dataset] = None
+        self.data_train: Optional[OneUrnDataset] = None
+        self.data_val: Optional[OneUrnDataset] = None
+        self.data_test: Optional[OneUrnDataset] = None
 
         self.batch_size_per_device = batch_size
 
@@ -121,7 +123,8 @@ class OneUrnDataModule(LightningDataModule):
 
         Do not use it to assign state (self.x = y).
         """
-        pass
+        # TODO:
+        self.hparams.get("filename")
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
