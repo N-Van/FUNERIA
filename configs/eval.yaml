@@ -2,8 +2,8 @@
 
 defaults:
   - _self_
-  - data: mnist # choose datamodule with `test_dataloader()` for evaluation
-  - model: mnist
+  - data: urn # choose datamodule with `test_dataloader()` for evaluation
+  - model: sam
   - logger: null
   - trainer: default
   - paths: default
@@ -13,6 +13,4 @@ defaults:
 task_name: "eval"
 
 tags: ["dev"]
-
 # passing checkpoint path is necessary for evaluation
-ckpt_path: ???

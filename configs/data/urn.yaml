@@ -1,0 +1,6 @@
+_target_: src.data.one_urn_datamodule.OneUrnDataModule
+filename: ${paths.data_dir}/Romane_Martin_urne_sature_10-4.tif
+batch_size: 25 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
+train_val_test_split: [0, 0, 1]
+num_workers: 0
+pin_memory: False

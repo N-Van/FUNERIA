@@ -1,20 +1,21 @@
+from pathlib import Path
 from typing import Any, Dict, Literal, Optional, Tuple, cast
+
 import numpy as np
+import tifffile as tiff
+from lightning import LightningDataModule
 from numpy.typing import NDArray
+from torch.utils.data import DataLoader, Dataset
+from torchvision import transforms
 from typing_extensions import override
 
-import torch
-from lightning import LightningDataModule
-from torchvision import transforms
-from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split
-from pathlib import Path
-import tifffile as tiff
 
 class UrnDataset(Dataset[Tuple[NDArray[Any], None]]):
     """A Dataset which iteratively opens the 3D scans of each urn as a ndarray.
 
-    TODO: load the correect segments
+    TODO: load the correct segments
     """
+
     def __init__(self, target_segmentations_dir: None, tiff_pic_dir: Path):
         self.target_segmentations_dir = target_segmentations_dir  # TODO: use it
         self.tiff_files = [file for file in tiff_pic_dir.iterdir() if file.name.endswith("tiff")]
@@ -25,25 +26,30 @@ class UrnDataset(Dataset[Tuple[NDArray[Any], None]]):
         correct_segments = None  # TODO:
         return image, correct_segments
 
+
 class OneUrnDataset(Dataset[Tuple[NDArray[Any], None]]):
-    """A Dataset which iterate over the projections of one urn along a defined
-    axis.
-    """
-    def __init__(self, image: NDArray[Any], correct_segments: None, projection_axis: Literal["x", "y", "z"]="z") -> None:
+    """A Dataset which iterate over the projections of one urn along a defined axis."""
+
+    def __init__(
+        self,
+        image: NDArray[Any],
+        correct_segments: None,
+        projection_axis: Literal["x", "y", "z"] = "z",
+    ) -> None:
         self.projection_axis = {k: i for i, k in enumerate(("z", "y", "x"))}[projection_axis]
-        self.image = image
+        self.image = image[..., np.newaxis].repeat(3, -1)
         self.correct_segments = correct_segments
 
     @override
     def __getitem__(self, index: int) -> Tuple[NDArray[Any], None]:
-        return (
-            np.take(self.image, indices=index, axis=self.projection_axis),
-            None
-        )
+        return (np.take(self.image, indices=index, axis=self.projection_axis), None)
+
+    def __len__(self) -> int:
+        return self.image.shape[self.projection_axis]
+
 
 class OneUrnDataModule(LightningDataModule):
     """`LightningDataModule` returning segments from a tiff file of one funeral urn.
-
 
     A `LightningDataModule` implements 7 key methods:
 
@@ -104,16 +110,13 @@ class OneUrnDataModule(LightningDataModule):
 
         # data transformations
         # empty for now
-        self.transforms = transforms.Compose(
-            []
-        )
+        self.transforms = transforms.Compose([transforms.ToTensor])
 
         self.data_train: Optional[OneUrnDataset] = None
         self.data_val: Optional[OneUrnDataset] = None
         self.data_test: Optional[OneUrnDataset] = None
 
         self.batch_size_per_device = batch_size
-
 
     def prepare_data(self) -> None:
         """Download data if needed. Lightning ensures that `self.prepare_data()` is called only
