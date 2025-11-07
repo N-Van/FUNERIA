@@ -1,11 +1,15 @@
-from typing import Any, Dict, Literal, Optional, Tuple
+from typing import Literal, Optional, Tuple
 
 import torch
 from ultralytics.models.sam import Predictor as SAMPredictor
 from lightning import LightningModule
 from torchmetrics import MaxMetric, MeanMetric
-from torchmetrics.classification.accuracy import Accuracy
 from tqdm import tqdm
+
+class IntersectionOverUnion():
+    """IOU for binary segmentation"""
+    def __call__(self, image1: torch.Tensor, image2: torch.Tensor):
+        return (image1.logical_and(image2).sum() / image1.logical_or(image2).sum())
 
 
 class SAM3DModuleLinear(LightningModule):
@@ -61,32 +65,22 @@ class SAM3DModuleLinear(LightningModule):
         self.save_hyperparameters(ignore=["sam_model"], logger=False)
 
         self.sam_model = sam_model
+        self.test_loss = MeanMetric()
+        self.worst_loss = MaxMetric()
 
         # loss function
-        self.criterion = torch.nn.CrossEntropyLoss()
+        self.criterion = IntersectionOverUnion()
 
-        # metric objects for calculating and averaging accuracy across batches
-        self.train_acc = Accuracy(task="multiclass", num_classes=10)
-        self.val_acc = Accuracy(task="multiclass", num_classes=10)
-        self.test_acc = Accuracy(task="multiclass", num_classes=10)
-
-        # for averaging loss across batches
-        self.train_loss = MeanMetric()
-        self.val_loss = MeanMetric()
-        self.test_loss = MeanMetric()
-
-        # for tracking best so far validation accuracy
-        self.val_acc_best = MaxMetric()
 
     def forward(self, projections: torch.Tensor) -> torch.Tensor:
         """Perform a forward pass through the model `self.net`.
 
         :param projections: A tensor of images (shape (Z, 3, H, W)), Z \
 is along the projection axis)
-        :return: A tensor of logits.
+        :return: A tensor with the 3D binary mask
         """
         depth, _, height, width = projections.shape
-        mask_3D = torch.empty((depth, height, width), dtype=torch.bool)
+        mask_3D = torch.empty((depth, height, width), dtype=torch.bool, device=self.device)
         for z in tqdm(
             range(projections.shape[0]),
             title="Segmented projections",
@@ -95,6 +89,7 @@ is along the projection axis)
             frame = projections[z:z+1]
             if (self.hparams["prompt_strategy"] is not None and
                 self.hparams["prompt_strategy"] != "grid"):
+                # TODO: define a filter
                 raise NotImplementedError("The custom prompt strategies to prelocate the bones are not yet implemented.")
             else:
                 preprocessed_frame = self.sam_model.preprocess(frame)
@@ -103,8 +98,11 @@ is along the projection axis)
                     points_stride=self.hparams["points_stride"],
                     points_batch_size=self.hparams["points_batch_size"]
                     # TODO: define other hyperparametres
-                    # see https://docs.ultralytics.com/reference/models/sam/predict/#ultralytics.models.sam.predict.Predictor.generate
+                    # see https://docs.ultralytics.com/reference/models/sam/predict/#ultralytics.models.sam.predict.predictor.generate
                 )
+                mask_3D[z] = masks.sum(dim=0)
+        # TODO: use the scores and merge the boxes
+        return mask_3D
 
     def on_train_start(self) -> None:
         """Lightning hook that is called when training begins."""
@@ -115,18 +113,23 @@ is along the projection axis)
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Perform a single model step on a batch of data.
 
-        :param batch: A batch of data (a tuple) containing the input tensor of images and target labels.
+        :param batch: A batch of data (a tuple) containing as input tensor \
+the even-indexed frames along the projection axis, and the other even-indexed \
+frames as target tensor
 
         :return: A tuple containing (in order):
-            - A tensor of losses.
+            - A tensor of losses
             - A tensor of predictions.
             - A tensor of target labels.
         """
         x, y = batch
-        logits = self.forward(x)
-        loss = self.criterion(logits, y)
-        preds = torch.argmax(logits, dim=1)
-        return loss, preds, y
+        mask_3D = self.forward(x)
+        similar_mask_3D = self.forward(y)
+        # we expect the two masks to be similar
+        # TODO: define the criterion
+        loss = self.criterion(mask_3D, similar_mask_3D)
+        # loss, preds, targets
+        return loss, mask_3D, similar_mask_3D
 
     def training_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
@@ -139,13 +142,6 @@ is along the projection axis)
         :return: A tensor of losses between model predictions and targets.
         """
         loss, preds, targets = self.model_step(batch)
-
-        # update and log metrics
-        self.train_loss(loss)
-        self.train_acc(preds, targets)
-        self.log("train/loss", self.train_loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("train/acc", self.train_acc, on_step=False, on_epoch=True, prog_bar=True)
-
         # return loss or backpropagation will fail
         return loss
 
@@ -160,21 +156,11 @@ is along the projection axis)
             labels.
         :param batch_idx: The index of the current batch.
         """
-        loss, preds, targets = self.model_step(batch)
-
-        # update and log metrics
-        self.val_loss(loss)
-        self.val_acc(preds, targets)
-        self.log("val/loss", self.val_loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("val/acc", self.val_acc, on_step=False, on_epoch=True, prog_bar=True)
+        pass
 
     def on_validation_epoch_end(self) -> None:
         "Lightning hook that is called when a validation epoch ends."
-        acc = self.val_acc.compute()  # get current val acc
-        self.val_acc_best(acc)  # update best so far val acc
-        # log `val_acc_best` as a value through `.compute()` method, instead of as a metric object
-        # otherwise metric would be reset by lightning after each epoch
-        self.log("val/acc_best", self.val_acc_best.compute(), sync_dist=True, prog_bar=True)
+        pass
 
     def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
         """Perform a single test step on a batch of data from the test set.
@@ -187,9 +173,9 @@ is along the projection axis)
 
         # update and log metrics
         self.test_loss(loss)
-        self.test_acc(preds, targets)
+        self.worst_loss(loss)
         self.log("test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("test/acc", self.test_acc, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("test/worst_loss", self.worst_loss, on_step=False, on_epoch=True, prog_bar=True)
 
     def on_test_epoch_end(self) -> None:
         """Lightning hook that is called when a test epoch ends."""
@@ -204,32 +190,4 @@ is along the projection axis)
 
         :param stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
         """
-        if self.hparams.compile and stage == "fit":
-            self.net = torch.compile(self.net)
-
-    def configure_optimizers(self) -> Dict[str, Any]:
-        """Choose what optimizers and learning-rate schedulers to use in your optimization.
-        Normally you'd need one. But in the case of GANs or similar you might have multiple.
-
-        Examples:
-            https://lightning.ai/docs/pytorch/latest/common/lightning_module.html#configure-optimizers
-
-        :return: A dict containing the configured optimizers and learning-rate schedulers to be used for training.
-        """
-        optimizer = self.hparams.optimizer(params=self.trainer.model.parameters())
-        if self.hparams.scheduler is not None:
-            scheduler = self.hparams.scheduler(optimizer=optimizer)
-            return {
-                "optimizer": optimizer,
-                "lr_scheduler": {
-                    "scheduler": scheduler,
-                    "monitor": "val/loss",
-                    "interval": "epoch",
-                    "frequency": 1,
-                },
-            }
-        return {"optimizer": optimizer}
-
-
-if __name__ == "__main__":
-    _ = MNISTLitModule(None, None, None, None)
+        pass

@@ -1,4 +1,4 @@
-from typing import Any, Dict, Literal, Optional, Tuple
+from typing import Any, Dict, Literal, Optional, Tuple, cast
 import numpy as np
 from numpy.typing import NDArray
 from typing_extensions import override
@@ -123,8 +123,7 @@ class OneUrnDataModule(LightningDataModule):
 
         Do not use it to assign state (self.x = y).
         """
-        # TODO:
-        self.hparams.get("filename")
+        pass
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
@@ -137,28 +136,25 @@ class OneUrnDataModule(LightningDataModule):
         :param stage: The stage to setup. Either `"fit"`, `"validate"`, `"test"`, or `"predict"`. Defaults to ``None``.
         """
         # Divide batch size by the number of devices.
+        batch_size = cast(int, self.hparams.get("batch_size"))
         if self.trainer is not None:
-            if self.hparams.batch_size % self.trainer.world_size != 0:
+            if batch_size % self.trainer.world_size != 0:
                 raise RuntimeError(
-                    f"Batch size ({self.hparams.batch_size}) is not divisible by the number of devices ({self.trainer.world_size})."
+                    f"Batch size ({batch_size}) is not divisible by the number of devices ({self.trainer.world_size})."
                 )
-            self.batch_size_per_device = self.hparams.batch_size // self.trainer.world_size
+            self.batch_size_per_device = batch_size // self.trainer.world_size
 
         # load and split datasets only if not loaded already
-        if not self.data_train and not self.data_val and not self.data_test:
-            testset = UrnDataset()
-            dataset = ConcatDataset(datasets=[trainset, testset])
-            self.data_train, self.data_val, self.data_test = random_split(
-                dataset=dataset,
-                lengths=self.hparams.train_val_test_split,
-                generator=torch.Generator().manual_seed(42),
-            )
+        if not self.data_test:
+            image = tiff.imread(self.hparams.get("filename"))
+            self.data_test = OneUrnDataset(image, None, "z")
 
     def train_dataloader(self) -> DataLoader[Any]:
         """Create and return the train dataloader.
 
         :return: The train dataloader.
         """
+        raise NotImplementedError("No training for now.")
         return DataLoader(
             dataset=self.data_train,
             batch_size=self.batch_size_per_device,
@@ -172,6 +168,7 @@ class OneUrnDataModule(LightningDataModule):
 
         :return: The validation dataloader.
         """
+        raise NotImplementedError("No training for now.")
         return DataLoader(
             dataset=self.data_val,
             batch_size=self.batch_size_per_device,
@@ -186,10 +183,10 @@ class OneUrnDataModule(LightningDataModule):
         :return: The test dataloader.
         """
         return DataLoader(
-            dataset=self.data_test,
+            dataset=cast(OneUrnDataset, self.data_test),
             batch_size=self.batch_size_per_device,
-            num_workers=self.hparams.num_workers,
-            pin_memory=self.hparams.pin_memory,
+            num_workers=self.hparams.get("num_workers", 0),
+            pin_memory=self.hparams.get("pin_memory", False),
             shuffle=False,
         )
 
@@ -216,7 +213,3 @@ class OneUrnDataModule(LightningDataModule):
         :param state_dict: The datamodule state returned by `self.state_dict()`.
         """
         pass
-
-
-if __name__ == "__main__":
-    _ = MNISTDataModule()
