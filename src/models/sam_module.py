@@ -1,10 +1,11 @@
-from typing import Literal, Optional, Tuple
+from typing import Literal, Optional, Tuple, cast
 
 import torch
 from lightning import LightningModule
 from torchmetrics import MaxMetric, MeanMetric
 from tqdm import tqdm
-from ultralytics.models.sam import Predictor as SAMPredictor
+from ultralytics.models.sam import SAM
+from ultralytics.utils import IterableSimpleNamespace
 
 
 class IntersectionOverUnion:
@@ -49,7 +50,8 @@ class SAM3DModuleLinear(LightningModule):
 
     def __init__(
         self,
-        sam_model: SAMPredictor,
+        sam_checkpoint: str,
+        sam_overrides: Optional[IterableSimpleNamespace] = None,
         points_stride: int = 32,
         points_batch_size: int = 25,
         # TODO: define custom prompt strategy
@@ -57,15 +59,18 @@ class SAM3DModuleLinear(LightningModule):
     ) -> None:
         """Initialize a `MNISTLitModule`.
 
-        :param sam_model: The already configured SAM Model.
+        :param sam_checkpoint: Path to the pretrained weights of the SAM Model
+        :param sam_overrides: Hyperparameters of SAM for the inference
         """
         super().__init__()
 
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
-        self.save_hyperparameters(ignore=["sam_model"], logger=False)
+        self.save_hyperparameters(ignore=["sam_checkpoint"], logger=False)
 
-        self.sam_model = sam_model
+        print("init the sam model")
+        self.sam_model = SAM(model=sam_checkpoint)
+        print("stop")
         self.test_loss = MeanMetric()
         self.worst_loss = MaxMetric()
 
@@ -81,6 +86,7 @@ class SAM3DModuleLinear(LightningModule):
         """
         depth, _, height, width = projections.shape
         mask_3D = torch.empty((depth, height, width), dtype=torch.bool, device=self.device)
+        sam_inferrence_overrides = cast(Optional[IterableSimpleNamespace], self.hparams["sam_overrides"])
         for z in tqdm(range(projections.shape[0]), desc="Segmenting projections", unit="projs"):
             frame = projections[z : z + 1]
             if (
@@ -92,14 +98,25 @@ class SAM3DModuleLinear(LightningModule):
                     "The custom prompt strategies to prelocate the bones are not yet implemented."
                 )
             else:
-                preprocessed_frame = self.sam_model.preprocess(frame)
-                masks, scores, boxes = self.sam_model.generate(
-                    preprocessed_frame,
+                # TODO: define other hyperparametres
+                # see https://docs.ultralytics.com/reference/models/sam/predict/#ultralytics.models.sam.predict.predictor.generate
+                print("On démarre l'inférence")
+                results = self.sam_model(
+                    frame,
+                    imgsz=min(height, width),
+                    # TODO: check if those two hyperparametres are actually set
                     points_stride=self.hparams["points_stride"],
-                    points_batch_size=self.hparams["points_batch_size"]
-                    # TODO: define other hyperparametres
-                    # see https://docs.ultralytics.com/reference/models/sam/predict/#ultralytics.models.sam.predict.predictor.generate
-                )
+                    points_batch_size=self.hparams["points_batch_size"],
+                    **dict(sam_inferrence_overrides if sam_inferrence_overrides
+                           is not None else {})
+                )[0]
+                print("On arrête l'inférence")
+                masks = results.masks
+                if masks is None:
+                    raise Exception("Unexpected behavior: no mask found in the picture.")
+                scores = results.scores
+                boxes = results.boxes
+                
                 mask_3D[z] = masks.sum(dim=0)
         # TODO: use the scores and merge the boxes
         return mask_3D
