@@ -3,6 +3,7 @@ from typing import Any, Dict, Literal, Optional, Tuple, cast
 
 import numpy as np
 import tifffile as tiff
+import torch
 from lightning import LightningDataModule
 from numpy.typing import NDArray
 from torch.utils.data import DataLoader, Dataset
@@ -10,7 +11,7 @@ from torchvision import transforms
 from typing_extensions import override
 
 
-class UrnDataset(Dataset[Tuple[NDArray[Any], None]]):
+class UrnDataset(Dataset[Tuple[NDArray[Any], NDArray[np.bool_]]]):
     """A Dataset which iteratively opens the 3D scans of each urn as a ndarray.
 
     TODO: load the correct segments
@@ -23,29 +24,51 @@ class UrnDataset(Dataset[Tuple[NDArray[Any], None]]):
     @override
     def __getitem__(self, i: int):
         image = tiff.imread(self.tiff_files[i])
-        correct_segments = None  # TODO:
+        correct_segments = np.empty_like(image, dtype=np.bool_)  # TODO:
         return image, correct_segments
 
 
-class OneUrnDataset(Dataset[Tuple[NDArray[Any], None]]):
+class OneUrnDataset(Dataset[Tuple[NDArray[Any], NDArray[np.bool_]]]):
     """A Dataset which iterate over the projections of one urn along a defined axis."""
 
     def __init__(
         self,
         image: NDArray[Any],
-        correct_segments: None,
+        projection_number: int,
+        correct_segments: NDArray[np.bool_],
         projection_axis: Literal["x", "y", "z"] = "z",
     ) -> None:
         self.projection_axis = {k: i for i, k in enumerate(("z", "y", "x"))}[projection_axis]
+        self.projection_number = projection_number
         self.image = image[..., np.newaxis].repeat(3, -1)
+        self.image_real_projection_number = self.image.shape[self.projection_axis]
         self.correct_segments = correct_segments
 
     @override
-    def __getitem__(self, index: int) -> Tuple[NDArray[Any], None]:
-        return (np.take(self.image, indices=index, axis=self.projection_axis), None)
+    def __getitem__(self, index: int) -> Tuple[NDArray[Any], NDArray[np.bool_]]:
+        # TODO: why taking the first picture instead of the (irpn // pn) ones ?
+        # TODO: interpolate
+        idx_to_take = index * self.image_real_projection_number // self.projection_number
+        projection_batch = np.take(self.image, indices=idx_to_take, axis=self.projection_axis)
+        correct_segment_batch = np.take(
+            self.correct_segments, indices=idx_to_take, axis=self.projection_axis
+        )
+        return projection_batch, correct_segment_batch
 
     def __len__(self) -> int:
-        return self.image.shape[self.projection_axis]
+        return self.projection_number
+
+
+class MoveAxis:
+    def __init__(self, source, destination):
+        self.source = source
+        self.destination = destination
+
+    def __call__(self, x: torch.Tensor):
+        return torch.moveaxis(x, self.source, self.destination)
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(source={self.source}, destination={self.destination})"
 
 
 class OneUrnDataModule(LightningDataModule):
@@ -90,7 +113,8 @@ class OneUrnDataModule(LightningDataModule):
         self,
         filename: str,
         train_val_test_split: Tuple[int, int, int] = (0, 0, 1),
-        batch_size: int = 25,  # frames per batch
+        projection_number: int = 640,
+        projection_batch_size: Optional[int] = None,  # projection frames per batch
         num_workers: int = 0,
         pin_memory: bool = False,
     ) -> None:
@@ -98,7 +122,8 @@ class OneUrnDataModule(LightningDataModule):
 
         :param data_dir: The data directory. Defaults to `"data/"`.
         :param train_val_test_split: The train, validation and test splits (number of slices). Defaults to `(0, 0, 1)`.
-        :param batch_size: The batch size. Defaults to `1`.
+        :param projection_number: The number of projections to be segmented along the axis
+        :param projection_batch_size: The number of projections per batch. Defaults to `None` to send all projections at once.
         :param num_workers: The number of workers. Defaults to `0`.
         :param pin_memory: Whether to pin memory. Defaults to `False`.
         """
@@ -110,13 +135,15 @@ class OneUrnDataModule(LightningDataModule):
 
         # data transformations
         # empty for now
-        self.transforms = transforms.Compose([transforms.ToTensor])
+        self.transforms = transforms.Compose(
+            [transforms.ToTensor(), MoveAxis((1, 2, 3), (2, 3, 1))]
+        )
 
         self.data_train: Optional[OneUrnDataset] = None
         self.data_val: Optional[OneUrnDataset] = None
         self.data_test: Optional[OneUrnDataset] = None
 
-        self.batch_size_per_device = batch_size
+        self.batch_size_per_device = projection_batch_size
 
     def prepare_data(self) -> None:
         """Download data if needed. Lightning ensures that `self.prepare_data()` is called only
@@ -139,8 +166,8 @@ class OneUrnDataModule(LightningDataModule):
         :param stage: The stage to setup. Either `"fit"`, `"validate"`, `"test"`, or `"predict"`. Defaults to ``None``.
         """
         # Divide batch size by the number of devices.
-        batch_size = cast(int, self.hparams.get("batch_size"))
-        if self.trainer is not None:
+        batch_size = cast(Optional[int], self.hparams.get("projection_batch_size"))
+        if batch_size is not None and self.trainer is not None:
             if batch_size % self.trainer.world_size != 0:
                 raise RuntimeError(
                     f"Batch size ({batch_size}) is not divisible by the number of devices ({self.trainer.world_size})."
@@ -150,7 +177,10 @@ class OneUrnDataModule(LightningDataModule):
         # load and split datasets only if not loaded already
         if not self.data_test:
             image = tiff.imread(self.hparams.get("filename"))
-            self.data_test = OneUrnDataset(image, None, "z")
+            correct_segments = np.empty_like(image, dtype=np.bool_)
+            self.data_test = OneUrnDataset(
+                image, cast(int, self.hparams.get("projection_number")), correct_segments, "z"
+            )
 
     def train_dataloader(self) -> DataLoader[Any]:
         """Create and return the train dataloader.
@@ -187,7 +217,9 @@ class OneUrnDataModule(LightningDataModule):
         """
         return DataLoader(
             dataset=cast(OneUrnDataset, self.data_test),
-            batch_size=self.batch_size_per_device,
+            batch_size=self.batch_size_per_device
+            if self.batch_size_per_device is not None
+            else len(cast(OneUrnDataset, self.data_test)),
             num_workers=self.hparams.get("num_workers", 0),
             pin_memory=self.hparams.get("pin_memory", False),
             shuffle=False,

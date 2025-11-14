@@ -1,15 +1,17 @@
 from typing import Literal, Optional, Tuple
 
 import torch
-from ultralytics.models.sam import Predictor as SAMPredictor
 from lightning import LightningModule
 from torchmetrics import MaxMetric, MeanMetric
 from tqdm import tqdm
+from ultralytics.models.sam import Predictor as SAMPredictor
 
-class IntersectionOverUnion():
-    """IOU for binary segmentation"""
+
+class IntersectionOverUnion:
+    """IOU for binary segmentation."""
+
     def __call__(self, image1: torch.Tensor, image2: torch.Tensor):
-        return (image1.logical_and(image2).sum() / image1.logical_or(image2).sum())
+        return image1.logical_and(image2).sum() / image1.logical_or(image2).sum()
 
 
 class SAM3DModuleLinear(LightningModule):
@@ -48,11 +50,10 @@ class SAM3DModuleLinear(LightningModule):
     def __init__(
         self,
         sam_model: SAMPredictor,
-        points_stride: int=32,
-        points_batch_size: int=25,
+        points_stride: int = 32,
+        points_batch_size: int = 25,
         # TODO: define custom prompt strategy
-        prompt_strategy: Optional[Literal["grid"]]=None
-
+        prompt_strategy: Optional[Literal["grid"]] = None,
     ) -> None:
         """Initialize a `MNISTLitModule`.
 
@@ -71,26 +72,25 @@ class SAM3DModuleLinear(LightningModule):
         # loss function
         self.criterion = IntersectionOverUnion()
 
-
     def forward(self, projections: torch.Tensor) -> torch.Tensor:
-        """Perform a forward pass through the model `self.net`.
+        r"""Perform a forward pass through the model `self.net`.
 
-        :param projections: A tensor of images (shape (Z, 3, H, W)), Z \
-is along the projection axis)
+        :param projections: A tensor of images (shape (Z, 3, H, W)), Z \ is along the projection
+            axis)
         :return: A tensor with the 3D binary mask
         """
         depth, _, height, width = projections.shape
         mask_3D = torch.empty((depth, height, width), dtype=torch.bool, device=self.device)
-        for z in tqdm(
-            range(projections.shape[0]),
-            title="Segmented projections",
-            unit="projs"
-        ):
-            frame = projections[z:z+1]
-            if (self.hparams["prompt_strategy"] is not None and
-                self.hparams["prompt_strategy"] != "grid"):
+        for z in tqdm(range(projections.shape[0]), desc="Segmenting projections", unit="projs"):
+            frame = projections[z : z + 1]
+            if (
+                self.hparams["prompt_strategy"] is not None
+                and self.hparams["prompt_strategy"] != "grid"
+            ):
                 # TODO: define a filter
-                raise NotImplementedError("The custom prompt strategies to prelocate the bones are not yet implemented.")
+                raise NotImplementedError(
+                    "The custom prompt strategies to prelocate the bones are not yet implemented."
+                )
             else:
                 preprocessed_frame = self.sam_model.preprocess(frame)
                 masks, scores, boxes = self.sam_model.generate(
@@ -113,14 +113,14 @@ is along the projection axis)
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Perform a single model step on a batch of data.
 
-        :param batch: A batch of data (a tuple) containing as input tensor \
-the even-indexed frames along the projection axis, and the other even-indexed \
-frames as target tensor
+                :param batch: A batch of data (a tuple) containing as input tensor \
+        the even-indexed frames along the projection axis, and the other even-indexed \
+        frames as target tensor
 
-        :return: A tuple containing (in order):
-            - A tensor of losses
-            - A tensor of predictions.
-            - A tensor of target labels.
+                :return: A tuple containing (in order):
+                    - A tensor of losses
+                    - A tensor of predictions.
+                    - A tensor of target labels.
         """
         x, y = batch
         mask_3D = self.forward(x)

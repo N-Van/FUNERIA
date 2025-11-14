@@ -9,7 +9,6 @@ sam_model:
     mode: predict
     imgsz: 640
     model: ${paths.data_dir}/sam_b.pt
-  _partial_: true
 
 points_stride: 32
 points_batch_size: 25
