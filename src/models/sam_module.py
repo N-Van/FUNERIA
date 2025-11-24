@@ -4,7 +4,7 @@ import torch
 from lightning import LightningModule
 from torchmetrics import MaxMetric, MeanMetric
 from tqdm import tqdm
-from ultralytics.models.sam import SAM
+from ultralytics.models import SAM
 from ultralytics.utils import IterableSimpleNamespace
 
 
@@ -13,6 +13,17 @@ class IntersectionOverUnion:
 
     def __call__(self, image1: torch.Tensor, image2: torch.Tensor):
         return image1.logical_and(image2).sum() / image1.logical_or(image2).sum()
+
+class DetachedSAM:
+    """Wrapper for the LightningModule not to set the train mode of the \
+ultralytics Model.
+    """
+    def __init__(self, sam_checkpoint: str) -> None:
+        self._sam_model = SAM(sam_checkpoint)
+
+    @property
+    def sam_model(self) -> SAM:
+        return self._sam_model
 
 
 class SAM3DModuleLinear(LightningModule):
@@ -69,7 +80,7 @@ class SAM3DModuleLinear(LightningModule):
         self.save_hyperparameters(ignore=["sam_checkpoint"], logger=False)
 
         print("init the sam model")
-        self.sam_model = SAM(model=sam_checkpoint)
+        self.detached_sam_model = DetachedSAM(sam_checkpoint)
         print("stop")
         self.test_loss = MeanMetric()
         self.worst_loss = MaxMetric()
@@ -86,7 +97,9 @@ class SAM3DModuleLinear(LightningModule):
         """
         depth, _, height, width = projections.shape
         mask_3D = torch.empty((depth, height, width), dtype=torch.bool, device=self.device)
-        sam_inferrence_overrides = cast(Optional[IterableSimpleNamespace], self.hparams["sam_overrides"])
+        sam_inferrence_overrides = cast(
+            Optional[IterableSimpleNamespace], self.hparams["sam_overrides"]
+        )
         for z in tqdm(range(projections.shape[0]), desc="Segmenting projections", unit="projs"):
             frame = projections[z : z + 1]
             if (
@@ -101,14 +114,15 @@ class SAM3DModuleLinear(LightningModule):
                 # TODO: define other hyperparametres
                 # see https://docs.ultralytics.com/reference/models/sam/predict/#ultralytics.models.sam.predict.predictor.generate
                 print("On démarre l'inférence")
-                results = self.sam_model(
+                results = self.detached_sam_model.sam_model(
                     frame,
                     imgsz=min(height, width),
                     # TODO: check if those two hyperparametres are actually set
                     points_stride=self.hparams["points_stride"],
                     points_batch_size=self.hparams["points_batch_size"],
-                    **dict(sam_inferrence_overrides if sam_inferrence_overrides
-                           is not None else {})
+                    **dict(
+                        sam_inferrence_overrides if sam_inferrence_overrides is not None else {}
+                    )
                 )[0]
                 print("On arrête l'inférence")
                 masks = results.masks
@@ -116,7 +130,7 @@ class SAM3DModuleLinear(LightningModule):
                     raise Exception("Unexpected behavior: no mask found in the picture.")
                 scores = results.scores
                 boxes = results.boxes
-                
+
                 mask_3D[z] = masks.sum(dim=0)
         # TODO: use the scores and merge the boxes
         return mask_3D
@@ -186,6 +200,7 @@ class SAM3DModuleLinear(LightningModule):
             labels.
         :param batch_idx: The index of the current batch.
         """
+        print("🥳 In test step")
         loss, preds, targets = self.model_step(batch)
 
         # update and log metrics
@@ -193,6 +208,7 @@ class SAM3DModuleLinear(LightningModule):
         self.worst_loss(loss)
         self.log("test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("test/worst_loss", self.worst_loss, on_step=False, on_epoch=True, prog_bar=True)
+        print("🎈 End test step")
 
     def on_test_epoch_end(self) -> None:
         """Lightning hook that is called when a test epoch ends."""
