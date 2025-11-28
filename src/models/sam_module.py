@@ -16,7 +16,7 @@ class IntersectionOverUnion:
 
 
 class DetachedSAM:
-    """Wrapper for the LightningModule not to set the train mode of the \ ultralytics Model."""
+    r"""Wrapper for the LightningModule not to set the train mode of the \ ultralytics Model."""
 
     def __init__(self, sam_checkpoint: str) -> None:
         self._sam_model = SAM(sam_checkpoint)
@@ -91,11 +91,11 @@ class SAM3DModuleLinear(LightningModule):
     def forward(self, projections: torch.Tensor) -> torch.Tensor:
         r"""Perform a forward pass through the model `self.net`.
 
-        :param projections: A tensor of images (shape (Z, 3, H, W)), Z \
-is along the projection axis)
+        :param projections: A tensor of images (shape (Z, 3, H, W)), Z \ is along the projection
+            axis)
         :return: A tensor with the 3D binary mask
         """
-        print('='*5 + "😃 Image Batch's size: ", projections.size())
+        print("=" * 5 + "😃 Image Batch's size: ", projections.size())
         depth, _, height, width = projections.shape
         mask_3D = torch.empty((depth, height, width), dtype=torch.bool, device=self.device)
         sam_inferrence_overrides = cast(
@@ -125,8 +125,10 @@ is along the projection axis)
                                 # points_batch_size=self.hparams["points_batch_size"]
                             ),
                             **dict(
-                                sam_inferrence_overrides if sam_inferrence_overrides is not None else {}
-                            )
+                                sam_inferrence_overrides
+                                if sam_inferrence_overrides is not None
+                                else {}
+                            ),
                         }
                     )[0]
                 masks = results.masks
