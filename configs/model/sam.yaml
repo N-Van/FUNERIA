@@ -2,7 +2,8 @@ _target_: src.models.sam_module.SAM3DModuleLinear
 
 sam_checkpoint: ${paths.data_dir}/sam_b.pt
 sam_overrides:
-  # See the ultralytics.utils.DEFAULT_CFG for the hyperparameters to be overridden
+  # See those hyperparameters to be overridden
+  # https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/default.yaml
   conf: 0.25
   task: segment
   mode: predict

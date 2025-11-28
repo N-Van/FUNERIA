@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional, Tuple, cast
+from typing import Any, Callable, Dict, Literal, Optional, Tuple, cast
 
 import numpy as np
 import tifffile as tiff
@@ -10,6 +10,15 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from typing_extensions import override
 
+class Compose():
+    def __init__(self, transforms: list[Callable]):
+        self.transforms = transforms
+
+    def __call__(self, x) -> Any:
+        res = x
+        for fn in self.transforms:
+            res = fn(res)
+        return res
 
 class UrnDataset(Dataset[Tuple[NDArray[Any], NDArray[np.bool_]]]):
     """A Dataset which iteratively opens the 3D scans of each urn as a ndarray.
@@ -29,13 +38,18 @@ class UrnDataset(Dataset[Tuple[NDArray[Any], NDArray[np.bool_]]]):
 
 
 class OneUrnDataset(Dataset[Tuple[NDArray[Any], NDArray[np.bool_]]]):
-    """A Dataset which iterate over the projections of one urn along a defined axis."""
+    """A Dataset which iterate over the projections of one urn along a defined axis.
+
+    An item return a projection numpy picture of shape (H, W, 3)
+    """
 
     def __init__(
         self,
         image: NDArray[Any],
         projection_number: int,
         correct_segments: NDArray[np.bool_],
+        transforms: Compose,
+        target_transforms: Compose,
         projection_axis: Literal["x", "y", "z"] = "z",
     ) -> None:
         self.projection_axis = {k: i for i, k in enumerate(("z", "y", "x"))}[projection_axis]
@@ -43,6 +57,8 @@ class OneUrnDataset(Dataset[Tuple[NDArray[Any], NDArray[np.bool_]]]):
         self.image = image[..., np.newaxis].repeat(3, -1)
         self.image_real_projection_number = self.image.shape[self.projection_axis]
         self.correct_segments = correct_segments
+        self.transforms = transforms
+        self.target_transforms = target_transforms
 
     @override
     def __getitem__(self, index: int) -> Tuple[NDArray[Any], NDArray[np.bool_]]:
@@ -53,22 +69,17 @@ class OneUrnDataset(Dataset[Tuple[NDArray[Any], NDArray[np.bool_]]]):
         correct_segment_batch = np.take(
             self.correct_segments, indices=idx_to_take, axis=self.projection_axis
         )
-        return projection_batch, correct_segment_batch
+        return self.transforms(projection_batch), self.target_transforms(correct_segment_batch)
 
     def __len__(self) -> int:
         return self.projection_number
 
 
-class MoveAxis:
-    def __init__(self, source, destination):
-        self.source = source
-        self.destination = destination
+def move_axis(source, destination):
+    def move_axis__forward(x: np.ndarray):
+        return np.moveaxis(x, source, destination)
+    return move_axis__forward
 
-    def __call__(self, x: torch.Tensor):
-        return torch.moveaxis(x, self.source, self.destination)
-
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(source={self.source}, destination={self.destination})"
 
 
 class OneUrnDataModule(LightningDataModule):
@@ -134,10 +145,11 @@ class OneUrnDataModule(LightningDataModule):
         self.save_hyperparameters(logger=False)
 
         # data transformations
-        # empty for now
-        self.transforms = transforms.Compose(
-            [transforms.ToTensor(), MoveAxis((1, 2, 3), (2, 3, 1))]
-        )
+        self.transforms = Compose([
+            # adapt the shape to ultralytics' spec
+            move_axis((2, 0, 1), (0, 1, 2))
+        ])
+        self.target_transforms = Compose([])
 
         self.data_train: Optional[OneUrnDataset] = None
         self.data_val: Optional[OneUrnDataset] = None
@@ -179,7 +191,8 @@ class OneUrnDataModule(LightningDataModule):
             image = tiff.imread(self.hparams.get("filename"))
             correct_segments = np.empty_like(image, dtype=np.bool_)
             self.data_test = OneUrnDataset(
-                image, cast(int, self.hparams.get("projection_number")), correct_segments, "z"
+                image, cast(int, self.hparams.get("projection_number")),
+                correct_segments, self.transforms, self.target_transforms, "z"
             )
 
     def train_dataloader(self) -> DataLoader[Any]:

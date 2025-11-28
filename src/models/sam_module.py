@@ -14,10 +14,10 @@ class IntersectionOverUnion:
     def __call__(self, image1: torch.Tensor, image2: torch.Tensor):
         return image1.logical_and(image2).sum() / image1.logical_or(image2).sum()
 
+
 class DetachedSAM:
-    """Wrapper for the LightningModule not to set the train mode of the \
-ultralytics Model.
-    """
+    """Wrapper for the LightningModule not to set the train mode of the \ ultralytics Model."""
+
     def __init__(self, sam_checkpoint: str) -> None:
         self._sam_model = SAM(sam_checkpoint)
 
@@ -91,10 +91,11 @@ class SAM3DModuleLinear(LightningModule):
     def forward(self, projections: torch.Tensor) -> torch.Tensor:
         r"""Perform a forward pass through the model `self.net`.
 
-        :param projections: A tensor of images (shape (Z, 3, H, W)), Z \ is along the projection
-            axis)
+        :param projections: A tensor of images (shape (Z, 3, H, W)), Z \
+is along the projection axis)
         :return: A tensor with the 3D binary mask
         """
+        print('='*5 + "😃 Image Batch's size: ", projections.size())
         depth, _, height, width = projections.shape
         mask_3D = torch.empty((depth, height, width), dtype=torch.bool, device=self.device)
         sam_inferrence_overrides = cast(
@@ -113,18 +114,21 @@ class SAM3DModuleLinear(LightningModule):
             else:
                 # TODO: define other hyperparametres
                 # see https://docs.ultralytics.com/reference/models/sam/predict/#ultralytics.models.sam.predict.predictor.generate
-                print("On démarre l'inférence")
-                results = self.detached_sam_model.sam_model(
-                    frame,
-                    imgsz=min(height, width),
-                    # TODO: check if those two hyperparametres are actually set
-                    points_stride=self.hparams["points_stride"],
-                    points_batch_size=self.hparams["points_batch_size"],
-                    **dict(
-                        sam_inferrence_overrides if sam_inferrence_overrides is not None else {}
-                    )
-                )[0]
-                print("On arrête l'inférence")
+                with torch.inference_mode():
+                    results = self.detached_sam_model.sam_model(
+                        frame,
+                        **{
+                            **dict(
+                                imgsz=min(height, width),
+                                # TODO: check if those two hyperparametres are actually set
+                                # points_stride=self.hparams["points_stride"],
+                                # points_batch_size=self.hparams["points_batch_size"]
+                            ),
+                            **dict(
+                                sam_inferrence_overrides if sam_inferrence_overrides is not None else {}
+                            )
+                        }
+                    )[0]
                 masks = results.masks
                 if masks is None:
                     raise Exception("Unexpected behavior: no mask found in the picture.")
