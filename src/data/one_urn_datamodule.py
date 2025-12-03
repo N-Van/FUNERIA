@@ -3,13 +3,18 @@ from typing import Any, Callable, Dict, Literal, Optional, Tuple, cast
 
 import numpy as np
 import tifffile as tiff
+import torch
 from lightning import LightningDataModule
 from numpy.typing import NDArray
 from torch.utils.data import DataLoader, Dataset
 from typing_extensions import override
 
+from src.utils.imageproc.resize import open_and_resize
+
 
 class Compose:
+    """Simple composer of functions."""
+
     def __init__(self, transforms: list[Callable]):
         self.transforms = transforms
 
@@ -32,6 +37,7 @@ class UrnDataset(Dataset[Tuple[NDArray[Any], NDArray[np.bool_]]]):
 
     @override
     def __getitem__(self, i: int):
+        """Return the volume related to one Urn."""
         image = tiff.imread(self.tiff_files[i])
         correct_segments = np.empty_like(image, dtype=np.bool_)  # TODO:
         return image, correct_segments
@@ -40,28 +46,36 @@ class UrnDataset(Dataset[Tuple[NDArray[Any], NDArray[np.bool_]]]):
 class OneUrnDataset(Dataset[Tuple[NDArray[Any], NDArray[np.bool_]]]):
     """A Dataset which iterate over the projections of one urn along a defined axis.
 
-    An item return a projection numpy picture of shape (H, W, 3)
+    An item return a projection numpy picture of shape (S, S, 3) (H = W)
     """
 
     def __init__(
         self,
-        image: NDArray[Any],
+        image_path: str,
         projection_number: int,
-        correct_segments: NDArray[np.bool_],
+        slice_image_size: int,
+        correct_segments_path: str,
         transforms: Compose,
         target_transforms: Compose,
         projection_axis: Literal["x", "y", "z"] = "z",
     ) -> None:
-        self.projection_axis = {k: i for i, k in enumerate(("z", "y", "x"))}[projection_axis]
+        self.projection_axis = cast(
+            Literal[0, 1, 2], {k: i for i, k in enumerate(("z", "y", "x"))}[projection_axis]
+        )
         self.projection_number = projection_number
+        image = open_and_resize(Path(image_path), self.projection_axis, slice_image_size)
         self.image = image[..., np.newaxis].repeat(3, -1)
         self.image_real_projection_number = self.image.shape[self.projection_axis]
+        # TODO: read the correct_segments from the image
+        correct_segments_path = correct_segments_path  # unused
+        correct_segments = np.empty_like(image, dtype=np.bool)
         self.correct_segments = correct_segments
         self.transforms = transforms
         self.target_transforms = target_transforms
 
     @override
     def __getitem__(self, index: int) -> Tuple[NDArray[Any], NDArray[np.bool_]]:
+        """Return a batch of projections fractioning one urn."""
         # TODO: why taking the first picture instead of the (irpn // pn) ones ?
         # TODO: interpolate
         idx_to_take = index * self.image_real_projection_number // self.projection_number
@@ -72,14 +86,26 @@ class OneUrnDataset(Dataset[Tuple[NDArray[Any], NDArray[np.bool_]]]):
         return self.transforms(projection_batch), self.target_transforms(correct_segment_batch)
 
     def __len__(self) -> int:
+        """Return the number of projections."""
         return self.projection_number
 
 
 def move_axis(source, destination):
+    """Move the axes of the volume."""
+
     def move_axis__forward(x: np.ndarray):
         return np.moveaxis(x, source, destination)
 
     return move_axis__forward
+
+
+def to_tensor():
+    """Transform the image of a projection into a tensor with values between 0 and 1."""
+
+    def to_tensor__forward(x: np.ndarray):
+        return torch.as_tensor(x, dtype=torch.float32) / 255
+
+    return to_tensor__forward
 
 
 class OneUrnDataModule(LightningDataModule):
@@ -125,15 +151,17 @@ class OneUrnDataModule(LightningDataModule):
         filename: str,
         train_val_test_split: Tuple[int, int, int] = (0, 0, 1),
         projection_number: int = 640,
+        slice_image_size: int = 640,
         projection_batch_size: Optional[int] = None,  # projection frames per batch
         num_workers: int = 0,
         pin_memory: bool = False,
     ) -> None:
         """Initialize a `OneUrnDataModule`.
 
-        :param data_dir: The data directory. Defaults to `"data/"`.
+        :param filename: The file of the urn tiff image.
         :param train_val_test_split: The train, validation and test splits (number of slices). Defaults to `(0, 0, 1)`.
         :param projection_number: The number of projections to be segmented along the axis
+        :param slice_image_size: The width and height value of a projection. A resized tiff image will be stored on disk.
         :param projection_batch_size: The number of projections per batch. Defaults to `None` to send all projections at once.
         :param num_workers: The number of workers. Defaults to `0`.
         :param pin_memory: Whether to pin memory. Defaults to `False`.
@@ -148,10 +176,11 @@ class OneUrnDataModule(LightningDataModule):
         self.transforms = Compose(
             [
                 # adapt the shape to ultralytics' spec
-                move_axis((2, 0, 1), (0, 1, 2))
+                move_axis((2, 0, 1), (0, 1, 2)),
+                to_tensor(),
             ]
         )
-        self.target_transforms = Compose([])
+        self.target_transforms = Compose([to_tensor()])
 
         self.data_train: Optional[OneUrnDataset] = None
         self.data_val: Optional[OneUrnDataset] = None
@@ -190,12 +219,11 @@ class OneUrnDataModule(LightningDataModule):
 
         # load and split datasets only if not loaded already
         if not self.data_test:
-            image = tiff.imread(self.hparams.get("filename"))
-            correct_segments = np.empty_like(image, dtype=np.bool_)
             self.data_test = OneUrnDataset(
-                image,
+                cast(str, self.hparams.get("filename")),
                 cast(int, self.hparams.get("projection_number")),
-                correct_segments,
+                cast(int, self.hparams.get("slice_image_size")),
+                "incorrect_path",  # TODO: set a real file path
                 self.transforms,
                 self.target_transforms,
                 "z",

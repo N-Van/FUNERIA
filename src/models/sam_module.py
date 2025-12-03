@@ -12,6 +12,7 @@ class IntersectionOverUnion:
     """IOU for binary segmentation."""
 
     def __call__(self, image1: torch.Tensor, image2: torch.Tensor):
+        """Return the loss value with the IOU."""
         return image1.logical_and(image2).sum() / image1.logical_or(image2).sum()
 
 
@@ -23,11 +24,16 @@ class DetachedSAM:
 
     @property
     def sam_model(self) -> SAM:
+        """Return the Ultralytics SAM model."""
         return self._sam_model
 
 
 class SAM3DModuleLinear(LightningModule):
     """Predict 3D segments from a volume that can be crossed within projections.
+
+    Give a tensor of projections of shape (Z, S, S), with Z the number of
+    projections and S the size of the image (S will not be resized by
+    ultralytics).
 
     A `LightningModule` implements 8 key methods:
 
@@ -96,6 +102,7 @@ class SAM3DModuleLinear(LightningModule):
         :return: A tensor with the 3D binary mask
         """
         print("=" * 5 + "😃 Image Batch's size: ", projections.size())
+        print("=" * 5 + "😸 Image Batch's dtype: ", projections.dtype)
         depth, _, height, width = projections.shape
         mask_3D = torch.empty((depth, height, width), dtype=torch.bool, device=self.device)
         sam_inferrence_overrides = cast(
@@ -131,13 +138,16 @@ class SAM3DModuleLinear(LightningModule):
                             ),
                         }
                     )[0]
-                masks = results.masks
+                masks = results.masks  # shape (N, H, W)
+                # N is the number of segments
                 if masks is None:
                     raise Exception("Unexpected behavior: no mask found in the picture.")
-                scores = results.scores
-                boxes = results.boxes
+                # TODO: use the scores (but with this line, not available in the API)
+                # scores = results.scores
+                # TODO: use the masks
+                # boxes = results.boxes
 
-                mask_3D[z] = masks.sum(dim=0)
+                mask_3D[z] = cast(torch.Tensor, masks.data).sum(dim=0)
         # TODO: use the scores and merge the boxes
         return mask_3D
 

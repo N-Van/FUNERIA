@@ -7,7 +7,6 @@ sam_overrides:
   conf: 0.25
   task: segment
   mode: predict
-  imgsz: 640
 
 points_stride: 32
 points_batch_size: 25
