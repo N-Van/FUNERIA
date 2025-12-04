@@ -8,7 +8,9 @@ from src.models.sam_module import SAM3DModuleLinear
 
 device = torch.device("cuda")
 data_dir = "data/"
-sam3D = SAM3DModuleLinear(str((Path(data_dir) / "sam_b.pt").resolve()), IterableSimpleNamespace())
+sam3D = SAM3DModuleLinear(
+    str((Path(data_dir) / "sam_b.pt").resolve()), IterableSimpleNamespace(), points_stride=8
+)
 
 
 @pytest.mark.parametrize("stride_factor", [1, 2])

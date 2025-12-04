@@ -99,11 +99,23 @@ def move_axis(source, destination):
     return move_axis__forward
 
 
+def normalize_channel():
+    """Normalize the grayscale values between 0 and 1."""
+
+    def normalize_channel__forward(x: np.ndarray):
+        img = x
+        mn, mx = float(img.min()), float(img.max())
+        img = ((img - mn) / (mx - mn)) if mx > mn else np.zeros_like(img, dtype=np.float32)
+        return img
+
+    return normalize_channel__forward
+
+
 def to_tensor():
     """Transform the image of a projection into a tensor with values between 0 and 1."""
 
     def to_tensor__forward(x: np.ndarray):
-        return torch.as_tensor(x, dtype=torch.float32) / 255
+        return torch.as_tensor(x, dtype=torch.float32)
 
     return to_tensor__forward
 
@@ -177,6 +189,7 @@ class OneUrnDataModule(LightningDataModule):
             [
                 # adapt the shape to ultralytics' spec
                 move_axis((2, 0, 1), (0, 1, 2)),
+                normalize_channel(),
                 to_tensor(),
             ]
         )

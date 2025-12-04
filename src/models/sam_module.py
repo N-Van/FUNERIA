@@ -1,9 +1,11 @@
 from typing import Literal, Optional, Tuple, cast
 
+import numpy as np
 import torch
 from lightning import LightningModule
 from torchmetrics import MaxMetric, MeanMetric
 from tqdm import tqdm
+from ultralytics.engine.results import Results
 from ultralytics.models import SAM
 from ultralytics.utils import IterableSimpleNamespace
 
@@ -94,6 +96,29 @@ class SAM3DModuleLinear(LightningModule):
         # loss function
         self.criterion = IntersectionOverUnion()
 
+    def generate_full_grid(self, stride: int, im_shape: tuple[int, int]):
+        """Generate prompt points with a full grid."""
+        h, w = im_shape
+        ys = np.arange(stride // 2, h, stride)
+        xs = np.arange(stride // 2, w, stride)
+        pts = [(int(y), int(x)) for x in xs for y in ys]  # (x, y)
+        label = 1
+        lbls = [label] * len(pts)
+        return pts, lbls
+
+    @staticmethod
+    def get_mask(results: Results):
+        """Return the mask from the output of the model.
+
+        :param results: the output
+        :param initial_projection: the initial input (shape
+        """
+        binary_treshold = 0.5
+        masks = results.masks  # shape [N, H, W]
+        if masks is None:
+            return None
+        return (cast(torch.Tensor, masks.data) > binary_treshold).sum(dim=0) > 0
+
     def forward(self, projections: torch.Tensor) -> torch.Tensor:
         r"""Perform a forward pass through the model `self.net`.
 
@@ -104,50 +129,38 @@ class SAM3DModuleLinear(LightningModule):
         print("=" * 5 + "😃 Image Batch's size: ", projections.size())
         print("=" * 5 + "😸 Image Batch's dtype: ", projections.dtype)
         depth, _, height, width = projections.shape
-        mask_3D = torch.empty((depth, height, width), dtype=torch.bool, device=self.device)
+        mask_3D = torch.zeros((depth, height, width), dtype=torch.bool, device=self.device)
         sam_inferrence_overrides = cast(
             Optional[IterableSimpleNamespace], self.hparams["sam_overrides"]
         )
+        points_stride = cast(int, self.hparams["points_stride"])
+        points_batch_size = cast(int, self.hparams["points_batch_size"])
+        points, labels = self.generate_full_grid(points_stride, (height, width))
+        model = self.detached_sam_model.sam_model
         for z in tqdm(range(projections.shape[0]), desc="Segmenting projections", unit="projs"):
             frame = projections[z : z + 1]
-            if (
-                self.hparams["prompt_strategy"] is not None
-                and self.hparams["prompt_strategy"] != "grid"
+            for i in tqdm(
+                range(0, len(points), points_batch_size),
+                desc="Processed prompt point batches",
+                unit="batches",
             ):
-                # TODO: define a filter
-                raise NotImplementedError(
-                    "The custom prompt strategies to prelocate the bones are not yet implemented."
-                )
-            else:
-                # TODO: define other hyperparametres
-                # see https://docs.ultralytics.com/reference/models/sam/predict/#ultralytics.models.sam.predict.predictor.generate
-                with torch.inference_mode():
-                    results = self.detached_sam_model.sam_model(
-                        frame,
-                        **{
-                            **dict(
-                                imgsz=min(height, width),
-                                # TODO: check if those two hyperparametres are actually set
-                                # points_stride=self.hparams["points_stride"],
-                                # points_batch_size=self.hparams["points_batch_size"]
-                            ),
-                            **dict(
-                                sam_inferrence_overrides
-                                if sam_inferrence_overrides is not None
-                                else {}
-                            ),
-                        }
-                    )[0]
-                masks = results.masks  # shape (N, H, W)
-                # N is the number of segments
-                if masks is None:
-                    raise Exception("Unexpected behavior: no mask found in the picture.")
+                results = model.predict(
+                    source=frame,
+                    points=points[i : i + points_batch_size],
+                    labels=labels[i : i + points_batch_size],
+                    device=self.device,
+                    imgsz=min(height, width),
+                    **dict(
+                        sam_inferrence_overrides if sam_inferrence_overrides is not None else {}
+                    ),
+                )[0]
+                mask = self.get_mask(results)
+                if mask is not None:
+                    mask_3D[z].logical_or_(mask)
                 # TODO: use the scores (but with this line, not available in the API)
                 # scores = results.scores
                 # TODO: use the masks
                 # boxes = results.boxes
-
-                mask_3D[z] = cast(torch.Tensor, masks.data).sum(dim=0)
         # TODO: use the scores and merge the boxes
         return mask_3D
 
