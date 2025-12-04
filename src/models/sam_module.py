@@ -87,9 +87,7 @@ class SAM3DModuleLinear(LightningModule):
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters(ignore=["sam_checkpoint"], logger=False)
 
-        print("init the sam model")
         self.detached_sam_model = DetachedSAM(sam_checkpoint)
-        print("stop")
         self.test_loss = MeanMetric()
         self.worst_loss = MaxMetric()
 
@@ -126,8 +124,6 @@ class SAM3DModuleLinear(LightningModule):
             axis)
         :return: A tensor with the 3D binary mask
         """
-        print("=" * 5 + "😃 Image Batch's size: ", projections.size())
-        print("=" * 5 + "😸 Image Batch's dtype: ", projections.dtype)
         depth, _, height, width = projections.shape
         mask_3D = torch.zeros((depth, height, width), dtype=torch.bool, device=self.device)
         sam_inferrence_overrides = cast(
@@ -184,12 +180,13 @@ class SAM3DModuleLinear(LightningModule):
         """
         x, y = batch
         mask_3D = self.forward(x)
-        similar_mask_3D = self.forward(y)
         # we expect the two masks to be similar
-        # TODO: define the criterion
-        loss = self.criterion(mask_3D, similar_mask_3D)
+        second_similar_mask = mask_3D[1::2]
+        first_mask = mask_3D[::2][: second_similar_mask.shape[0]]
+        loss = self.criterion(first_mask, second_similar_mask)
         # loss, preds, targets
-        return loss, mask_3D, similar_mask_3D
+        # return the full mask for now
+        return loss, mask_3D, y
 
     def training_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
@@ -229,7 +226,6 @@ class SAM3DModuleLinear(LightningModule):
             labels.
         :param batch_idx: The index of the current batch.
         """
-        print("🥳 In test step")
         loss, preds, targets = self.model_step(batch)
 
         # update and log metrics
@@ -237,7 +233,6 @@ class SAM3DModuleLinear(LightningModule):
         self.worst_loss(loss)
         self.log("test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("test/worst_loss", self.worst_loss, on_step=False, on_epoch=True, prog_bar=True)
-        print("🎈 End test step")
 
     def on_test_epoch_end(self) -> None:
         """Lightning hook that is called when a test epoch ends."""
