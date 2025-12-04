@@ -1,0 +1,13 @@
+_target_: src.models.sam_module.SAM3DModuleLinear
+
+sam_checkpoint: ${paths.data_dir}/sam_b.pt
+sam_overrides:
+  # See those hyperparameters to be overridden
+  # https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/default.yaml
+  conf: 0.25
+  task: segment
+  mode: predict
+
+points_stride: 32
+points_batch_size: 25
+prompt_strategy: grid
