@@ -135,6 +135,7 @@ class SAM3DModuleLinear(LightningModule):
         model = self.detached_sam_model.sam_model
         for z in tqdm(range(projections.shape[0]), desc="Segmenting projections", unit="projs"):
             frame = projections[z : z + 1]
+            # TODO: generate here the filtered points and labels
             for i in tqdm(
                 range(0, len(points), points_batch_size),
                 desc="Processed prompt point batches",
