@@ -1,0 +1,7 @@
+name: napari-env
+channels:
+  - conda-forge
+dependencies:
+  - napari
+  - pyqt
+  - python=3.11

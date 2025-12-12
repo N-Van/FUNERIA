@@ -19,7 +19,7 @@ AI assisted segmentation of CT-scanned funerary urns.
 
 ## Installation
 
-#### Pip
+### Pip
 
 ```bash
 # clone project
@@ -37,7 +37,7 @@ conda activate FUNERIA
 pip install -r requirements.txt
 ```
 
-#### Conda
+### Conda
 
 ```bash
 # clone project
@@ -53,26 +53,37 @@ conda activate FUNERIA
 
 ## How to run
 
-Train model with default configuration
+1. Set the path of the tiff file of your urn in `configs/data/urn.yml`
 
-```bash
-# train on CPU
-python src/train.py trainer=cpu
+2. Evaluate the model on your urn:
 
-# train on GPU
-python src/train.py trainer=gpu
-```
-
-Train model with chosen experiment configuration from [configs/experiment/](configs/experiment/)
-
-```bash
-python src/train.py experiment=experiment_name.yaml
-```
+   ```sh
+   # gpu for the trainer is recommended
+   python src/eval.py trainer=gpu
+   # or make eval
+   ```
 
 You can override any parameter from command line like this
 
 ```bash
-python src/train.py trainer.max_epochs=20 data.batch_size=64
+python src/eval.py data.projection_number=64
+python src/eval.py experiment=experiment_name.yaml
+```
+
+## How to visualize your volumes
+
+We recommend to use [`napari`](https://napari.org). This conda environment can
+be installed with the line below:
+
+```sh
+conda env create -f napari-env.yaml -n napari-env
+```
+
+To open your tiff image
+
+```sh
+conda activate napari-env
+napari your-volume.tiff
 ```
 
 ## License
