@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 from typing import Any, Callable, Dict, Literal, Optional, Tuple, cast
 
@@ -52,7 +53,7 @@ class OneUrnDataset(Dataset[Tuple[NDArray[Any], NDArray[np.bool_]]]):
     def __init__(
         self,
         image_path: str,
-        projection_number: int,
+        slice_jump: int,
         slice_image_size: int,
         correct_segments_path: str,
         transforms: Compose,
@@ -62,10 +63,10 @@ class OneUrnDataset(Dataset[Tuple[NDArray[Any], NDArray[np.bool_]]]):
         self.projection_axis = cast(
             Literal[0, 1, 2], {k: i for i, k in enumerate(("z", "y", "x"))}[projection_axis]
         )
-        self.projection_number = projection_number
+        self.slice_jump = slice_jump
         image = open_and_resize(Path(image_path), self.projection_axis, slice_image_size)
         self.image = image[..., np.newaxis].repeat(3, -1)
-        self.image_real_projection_number = self.image.shape[self.projection_axis]
+        self.image_slice_number = self.image.shape[self.projection_axis] // self.slice_jump
         # TODO: read the correct_segments from the image
         correct_segments_path = correct_segments_path  # unused
         correct_segments = np.empty_like(image, dtype=np.bool)
@@ -78,7 +79,7 @@ class OneUrnDataset(Dataset[Tuple[NDArray[Any], NDArray[np.bool_]]]):
         """Return a batch of projections fractioning one urn."""
         # TODO: why taking the first picture instead of the (irpn // pn) ones ?
         # TODO: interpolate
-        idx_to_take = index * self.image_real_projection_number // self.projection_number
+        idx_to_take = index * self.slice_jump
         projection_batch = np.take(self.image, indices=idx_to_take, axis=self.projection_axis)
         correct_segment_batch = np.take(
             self.correct_segments, indices=idx_to_take, axis=self.projection_axis
@@ -87,7 +88,7 @@ class OneUrnDataset(Dataset[Tuple[NDArray[Any], NDArray[np.bool_]]]):
 
     def __len__(self) -> int:
         """Return the number of projections."""
-        return self.projection_number
+        return self.image_slice_number
 
 
 def move_axis(source, destination):
@@ -162,7 +163,7 @@ class OneUrnDataModule(LightningDataModule):
         self,
         filename: str,
         train_val_test_split: Tuple[int, int, int] = (0, 0, 1),
-        projection_number: int = 640,
+        slice_jump: int = 25,
         slice_image_size: int = 640,
         projection_batch_size: Optional[int] = None,  # projection frames per batch
         num_workers: int = 0,
@@ -172,7 +173,7 @@ class OneUrnDataModule(LightningDataModule):
 
         :param filename: The file of the urn tiff image.
         :param train_val_test_split: The train, validation and test splits (number of slices). Defaults to `(0, 0, 1)`.
-        :param projection_number: The number of projections to be segmented along the axis
+        :param slice_jump: The number of slices to be skipped along the slicing axis
         :param slice_image_size: The width and height value of a projection. A resized tiff image will be stored on disk.
         :param projection_batch_size: The number of projections per batch. Defaults to `None` to send all projections at once.
         :param num_workers: The number of workers. Defaults to `0`.
@@ -234,7 +235,7 @@ class OneUrnDataModule(LightningDataModule):
         if not self.data_test:
             self.data_test = OneUrnDataset(
                 cast(str, self.hparams.get("filename")),
-                cast(int, self.hparams.get("projection_number")),
+                cast(int, self.hparams.get("slice_jump")),
                 cast(int, self.hparams.get("slice_image_size")),
                 "incorrect_path",  # TODO: set a real file path
                 self.transforms,
