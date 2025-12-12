@@ -27,7 +27,7 @@ test-full: ## Run all tests
 	pytest
 
 train: ## Train the model
-	python src/train.py trainer=gpu
+	python src/train.py trainer=gpu logger=mlflow
 
 eval: ## Eval the model
-	python src/eval.py trainer=gpu
+	python src/eval.py trainer=gpu logger=mlflow

@@ -59,9 +59,16 @@ conda activate FUNERIA
 
    ```sh
    # gpu for the trainer is recommended
-   python src/eval.py trainer=gpu
+   python src/eval.py trainer=gpu logger=mlflow
    # or make eval
    ```
+
+3. You can inspect the run in MLFlow
+
+```sh
+cd logs/mlflow
+mlflow ui
+```
 
 You can override any parameter from command line like this
 
