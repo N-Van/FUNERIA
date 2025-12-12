@@ -70,6 +70,14 @@ python src/eval.py data.projection_number=64
 python src/eval.py experiment=experiment_name.yaml
 ```
 
+## How to crop your volume
+
+A cli tool has been developed in the `src/crop_volume.py` script.
+
+```sh
+python src/crop_volume.py --help
+```
+
 ## How to visualize your volumes
 
 We recommend to use [`napari`](https://napari.org). This conda environment can
