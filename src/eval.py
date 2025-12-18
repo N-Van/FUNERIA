@@ -1,7 +1,8 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, cast
 
 import hydra
 import rootutils
+from codecarbon import EmissionsTracker
 from lightning import LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
@@ -45,6 +46,9 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     :param cfg: DictConfig configuration composed by Hydra.
     :return: Tuple[dict, dict] with metrics and dict with all instantiated objects.
     """
+    log.info(f"Starting the codecarbon tracker (results in <{cfg.extras.codecarbon.output_file}>)")
+    emission_tracker: EmissionsTracker = hydra.utils.instantiate(cfg.extras.codecarbon)
+    emission_tracker.start()
 
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
@@ -77,6 +81,30 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     # predictions = trainer.predict(model=model, dataloaders=dataloaders)
 
     metric_dict = trainer.callback_metrics
+
+    emissions = cast(float, emission_tracker.stop())
+    log.info("-----------------------------------------------------")
+    log.info(
+        "Total CPU energy consumption CodeCarbon (Process): "
+        + str(emission_tracker._total_cpu_energy.kWh * 1000)
+        + " Wh"
+    )
+    log.info(
+        "Total RAM energy consumption CodeCarbon (Process): "
+        + str(emission_tracker._total_ram_energy.kWh * 1000)
+        + " Wh"
+    )
+    log.info(
+        "Total GPU energy consumption CodeCarbon (Process): "
+        + str(emission_tracker._total_gpu_energy.kWh * 1000)
+        + " Wh"
+    )
+    log.info(
+        "Total Energy consumption CodeCarbon (Process): "
+        + str(emission_tracker._total_energy.kWh * 1000)
+        + " Wh"
+    )
+    log.info("Emissions by CodeCarbon (Process): " + str(emissions * 1000) + " gCO2e")
 
     return metric_dict, object_dict
 
