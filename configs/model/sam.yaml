@@ -3,10 +3,24 @@ _target_: src.models.sam_module.SAM3DModuleLinear
 sam_checkpoint: ${paths.data_dir}/sam_b.pt
 sam_overrides:
   # See those hyperparameters to be overridden
-  # https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/default.yaml
+  # DEFAULT_CFG: https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/default.yaml
   conf: 0.25
   task: segment
   mode: predict
+  # SAM Predictor generate method's params: https://docs.ultralytics.com/reference/models/sam/predict/#ultralytics.models.sam.predict.Predictor.generate
+  #  crop_n_layers: 0
+  #  crop_overlap_ratio: 512 / 1500
+  #  crop_downscale_factor: 1
+  #  point_grids: None
+  #  points_stride: 32
+  #  points_batch_size: 64
+  #  conf_thres: 0.88
+  #  stability_score_thresh: 0.95
+  #  stability_score_offset: 0.95
+  #  crop_nms_thresh: 0.7
+  # SAM Predictor additional arguments:
+  #  iou: 0.7
+  #  retina_masks: True
 
 points_stride: 32
 points_batch_size: 25
