@@ -44,7 +44,7 @@ class UrnDataset(Dataset[Tuple[NDArray[Any], NDArray[np.bool_]]]):
         return image, correct_segments
 
 
-class OneUrnDataset(Dataset[Tuple[NDArray[Any], NDArray[np.bool_]]]):
+class OneUrnDataset(Dataset[Tuple[torch.Tensor, torch.Tensor]]):
     """A Dataset which iterate over the projections of one urn along a defined axis.
 
     An item return a projection numpy picture of shape (S, S, 3) (H = W)
@@ -75,7 +75,7 @@ class OneUrnDataset(Dataset[Tuple[NDArray[Any], NDArray[np.bool_]]]):
         self.target_transforms = target_transforms
 
     @override
-    def __getitem__(self, index: int) -> Tuple[NDArray[Any], NDArray[np.bool_]]:
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """Return a batch of projections fractioning one urn."""
         # TODO: why taking the first picture instead of the (irpn // pn) ones ?
         # TODO: interpolate
@@ -112,11 +112,11 @@ def normalize_channel():
     return normalize_channel__forward
 
 
-def to_tensor():
+def to_tensor(dtype: torch.dtype):
     """Transform the image of a projection into a tensor with values between 0 and 1."""
 
     def to_tensor__forward(x: np.ndarray):
-        return torch.as_tensor(x, dtype=torch.float32)
+        return torch.as_tensor(x, dtype=dtype)
 
     return to_tensor__forward
 
@@ -165,6 +165,7 @@ class OneUrnDataModule(LightningDataModule):
         train_val_test_split: Tuple[int, int, int] = (0, 0, 1),
         slice_jump: int = 25,
         slice_image_size: int = 640,
+        slicing_axis: Literal["x", "y", "z"] = "z",
         projection_batch_size: Optional[int] = None,  # projection frames per batch
         num_workers: int = 0,
         pin_memory: bool = False,
@@ -191,14 +192,18 @@ class OneUrnDataModule(LightningDataModule):
                 # adapt the shape to ultralytics' spec
                 move_axis((2, 0, 1), (0, 1, 2)),
                 normalize_channel(),
-                to_tensor(),
+                to_tensor(torch.float32),
             ]
         )
-        self.target_transforms = Compose([to_tensor()])
+        self.target_transforms = Compose([to_tensor(torch.bool)])
 
         self.data_train: Optional[OneUrnDataset] = None
         self.data_val: Optional[OneUrnDataset] = None
         self.data_test: Optional[OneUrnDataset] = None
+
+        # TODO: init the OneUrnDataset in the setup method
+        # while preprocess the volume in the prepare_data method
+        self._cached_data_test: Optional[OneUrnDataset] = None
 
         self.batch_size_per_device = projection_batch_size
 
@@ -210,7 +215,15 @@ class OneUrnDataModule(LightningDataModule):
 
         Do not use it to assign state (self.x = y).
         """
-        pass
+        self._cached_data_test = OneUrnDataset(
+            cast(str, self.hparams.get("filename")),
+            cast(int, self.hparams.get("slice_jump")),
+            cast(int, self.hparams.get("slice_image_size")),
+            "incorrect_path",  # TODO: set a real file path
+            self.transforms,
+            self.target_transforms,
+            cast(Literal["x", "y", "z"], self.hparams.get("slicing_axis")),
+        )
 
     def setup(self, stage: Optional[str] = None) -> None:
         """Load data. Set variables: `self.data_train`, `self.data_val`, `self.data_test`.
@@ -233,15 +246,7 @@ class OneUrnDataModule(LightningDataModule):
 
         # load and split datasets only if not loaded already
         if not self.data_test:
-            self.data_test = OneUrnDataset(
-                cast(str, self.hparams.get("filename")),
-                cast(int, self.hparams.get("slice_jump")),
-                cast(int, self.hparams.get("slice_image_size")),
-                "incorrect_path",  # TODO: set a real file path
-                self.transforms,
-                self.target_transforms,
-                "z",
-            )
+            self.data_test = self._cached_data_test
 
     def train_dataloader(self) -> DataLoader[Any]:
         """Create and return the train dataloader.

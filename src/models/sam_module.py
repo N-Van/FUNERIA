@@ -120,7 +120,7 @@ class SAM3DModuleLinear(LightningModule):
     def forward(self, projections: torch.Tensor) -> torch.Tensor:
         r"""Perform a forward pass through the model `self.net`.
 
-        :param projections: A tensor of images (shape (Z, 3, H, W)), Z \ is along the projection
+        :param projections: A tensor of images (shape (Z, 3, H, W)), Z is along the projection
             axis)
         :return: A tensor with the 3D binary mask
         """
