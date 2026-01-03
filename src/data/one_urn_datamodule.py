@@ -67,9 +67,11 @@ class OneUrnDataset(Dataset[Tuple[torch.Tensor, torch.Tensor]]):
         image = open_and_resize(Path(image_path), self.projection_axis, slice_image_size)
         self.image = image[..., np.newaxis].repeat(3, -1)
         self.image_slice_number = self.image.shape[self.projection_axis] // self.slice_jump
-        # TODO: read the correct_segments from the image
-        correct_segments_path = correct_segments_path  # unused
-        correct_segments = np.empty_like(image, dtype=np.bool)
+        # WARN: the full resolution for targets has not been kept
+        # what prevents to show the resolution issues of the segmentation
+        correct_segments = open_and_resize(
+            Path(correct_segments_path), self.projection_axis, slice_image_size, boolify=True
+        )
         self.correct_segments = correct_segments
         self.transforms = transforms
         self.target_transforms = target_transforms
@@ -162,6 +164,7 @@ class OneUrnDataModule(LightningDataModule):
     def __init__(
         self,
         filename: str,
+        ground_truth_filename: str,
         train_val_test_split: Tuple[int, int, int] = (0, 0, 1),
         slice_jump: int = 25,
         slice_image_size: int = 640,
@@ -219,7 +222,7 @@ class OneUrnDataModule(LightningDataModule):
             cast(str, self.hparams.get("filename")),
             cast(int, self.hparams.get("slice_jump")),
             cast(int, self.hparams.get("slice_image_size")),
-            "incorrect_path",  # TODO: set a real file path
+            cast(str, self.hparams.get("ground_truth_filename")),
             self.transforms,
             self.target_transforms,
             cast(Literal["x", "y", "z"], self.hparams.get("slicing_axis")),
