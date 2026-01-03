@@ -7,8 +7,13 @@ from numpy.typing import NDArray
 from scipy import ndimage
 
 
+def binarize_image(image: NDArray[Any]) -> NDArray[Any]:
+    """Return an image with only 0 or 255 value."""
+    return (image > 255 / 2) * 255
+
+
 def open_and_resize(
-    tiff_path: Path, projection_axis: Literal[0, 1, 2], imgsz: int
+    tiff_path: Path, projection_axis: Literal[0, 1, 2], imgsz: int, boolify=False
 ) -> NDArray[Any]:
     """Return a 3D volume with all axes excepted the projection one of dim imgsz.
 
@@ -31,6 +36,8 @@ def open_and_resize(
     new_shape = np.array([keep_dim(i) for i in range(3)])
     zoom_factor = new_shape / raw_shape
     resized_volume = ndimage.zoom(raw_volume, zoom_factor, order=1)  # trilinear resizing
+    if boolify:
+        resized_volume = binarize_image(resized_volume)
     print("Resizing the volume...")
     tifffile.imwrite(cached_image_path, resized_volume)
     print("Resized image stored in", cached_image_path)
