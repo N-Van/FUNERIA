@@ -1,0 +1,3 @@
+defaults:
+  - tiff_writing
+  - slice_metric_graphs

@@ -8,7 +8,7 @@ import tifffile
 from lightning.pytorch.utilities.types import STEP_OUTPUT
 from typing_extensions import override
 
-from src.models.types import OutputsWithLoss
+from src.models.types import SegmentationForwardOutput
 
 
 class SaveSegmentOnTheFly(pl.Callback):
@@ -44,7 +44,7 @@ class SaveSegmentOnTheFly(pl.Callback):
         dataloader_idx: int = 0,
     ) -> None:
         """At each test step, save on the fly the new segmented fragment."""
-        outputs = cast(OutputsWithLoss, outputs)
+        outputs = cast(SegmentationForwardOutput, outputs)
         image = outputs["preds"].cpu().numpy() * 255
         writer = cast(tifffile.TiffWriter, self.tiff_writer)
         # add each frame sequentially

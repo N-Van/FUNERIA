@@ -11,7 +11,7 @@ from torch import Tensor
 from torch.utils.data import DataLoader, TensorDataset
 from typing_extensions import override
 
-from src.models.types import OutputsWithLoss
+from src.models.types import SegmentationForwardOutput, SegmentationLoss
 from src.utils.imageproc.save_on_disk import SaveSegmentOnTheFly
 
 
@@ -20,10 +20,13 @@ class TestModule(LightningModule):
         super().__init__()
 
     @override
-    def test_step(self, batch: Tensor) -> OutputsWithLoss:
+    def test_step(self, batch: Tensor) -> SegmentationForwardOutput:
         x, _ = batch
-        loss = torch.empty((1, 1))
-        return OutputsWithLoss(preds=x, loss=loss)
+        loss: SegmentationLoss = {
+            "ground_truth_iou": torch.empty((1, 1)),
+            "pairwise_iou": torch.empty((1, 1)),
+        }
+        return SegmentationForwardOutput(preds=x, loss=loss)
 
 
 @pytest.mark.slow

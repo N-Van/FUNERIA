@@ -1,0 +1,2 @@
+slice_metric_graphs:
+  _target_: src.utils.log_stacking.MetricStackOverBatchAxis

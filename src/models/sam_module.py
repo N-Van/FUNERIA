@@ -9,15 +9,22 @@ from ultralytics.engine.results import Results
 from ultralytics.models import SAM
 from ultralytics.utils import IterableSimpleNamespace
 
-from src.models.types import OutputsWithLoss
+from src.models.types import SegmentationForwardOutput, SegmentationLoss
 
 
 class IntersectionOverUnion:
     """IOU for binary segmentation."""
 
     def __call__(self, image1: torch.Tensor, image2: torch.Tensor):
-        """Return the loss value with the IOU."""
-        return image1.logical_and(image2).sum() / image1.logical_or(image2).sum()
+        """Return the loss value with the IOU.
+
+        :param image1: shape (Z, S, S)
+        :param image2: shape (Z, S, S)
+        :return: the per-slice loss value (shape (Z,))
+        """
+        return image1.logical_and(image2).sum(dim=(1, 2)) / image1.logical_or(image2).sum(
+            dim=(1, 2)
+        )
 
 
 class DetachedSAM:
@@ -33,11 +40,11 @@ class DetachedSAM:
 
 
 class SAM3DModuleLinear(LightningModule):
-    """Predict 3D segments from a volume that can be crossed within projections.
+    """Predict 3D segments from a volume that can be crossed within slices.
 
-    Give a tensor of projections of shape (Z, S, S), with Z the number of
-    projections and S the size of the image (S will not be resized by
-    ultralytics).
+    Given a tensor of slices of shape (Z, S, S), with Z the number of
+    slices and S the size of the image (S will not be resized by
+    ultralytics), return a segmented tensor of booleans of shape (Z, S, S).
 
     A `LightningModule` implements 8 key methods:
 
@@ -78,7 +85,7 @@ class SAM3DModuleLinear(LightningModule):
         # TODO: define custom prompt strategy
         prompt_strategy: Optional[Literal["grid"]] = None,
     ) -> None:
-        """Initialize a `MNISTLitModule`.
+        """Initialize a `SAM3DModuleLinear`.
 
         :param sam_checkpoint: Path to the pretrained weights of the SAM Model
         :param sam_overrides: Hyperparameters of SAM for the inference
@@ -90,8 +97,10 @@ class SAM3DModuleLinear(LightningModule):
         self.save_hyperparameters(ignore=["sam_checkpoint"], logger=False)
 
         self.detached_sam_model = DetachedSAM(sam_checkpoint)
-        self.test_loss = MeanMetric()
-        self.worst_loss = MaxMetric()
+        self.test_gdloss = MeanMetric()
+        self.worst_gdloss = MaxMetric()
+        self.test_pwloss = MeanMetric()
+        self.worst_pwloss = MaxMetric()
 
         # loss function
         self.criterion = IntersectionOverUnion()
@@ -169,7 +178,7 @@ class SAM3DModuleLinear(LightningModule):
 
     def model_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor]
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[SegmentationLoss, torch.Tensor, torch.Tensor]:
         """Perform a single model step on a batch of data.
 
                 :param batch: A batch of data (a tuple) containing as input tensor \
@@ -183,11 +192,23 @@ class SAM3DModuleLinear(LightningModule):
         """
         x, y = batch
         mask_3D = self.forward(x)
+
+        # first loss: compare with the ground truth
+        gd_loss = self.criterion(mask_3D, y)
+
+        # second loss: pairwise-slice similarity
         # we expect the two masks to be similar
         second_similar_mask = mask_3D[1::2]
         first_mask = mask_3D[::2][: second_similar_mask.shape[0]]
-        loss = self.criterion(first_mask, second_similar_mask)
+        pairwise_loss = self.criterion(first_mask, second_similar_mask).repeat_interleave(
+            2, dim=0
+        )  # keep the same shape as the first loss
+
         # loss, preds, targets
+        loss: SegmentationLoss = {
+            "pairwise_iou": pairwise_loss,
+            "ground_truth_iou": gd_loss,
+        }
         # return the full mask for now
         return loss, mask_3D, y
 
@@ -203,7 +224,7 @@ class SAM3DModuleLinear(LightningModule):
         """
         loss, preds, targets = self.model_step(batch)
         # return loss or backpropagation will fail
-        return loss
+        return loss["ground_truth_iou"]
 
     def on_train_epoch_end(self) -> None:
         "Lightning hook that is called when a training epoch ends."
@@ -224,7 +245,7 @@ class SAM3DModuleLinear(LightningModule):
 
     def test_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
-    ) -> OutputsWithLoss:
+    ) -> SegmentationForwardOutput:
         """Perform a single test step on a batch of data from the test set.
 
         :param batch: A batch of data (a tuple) containing the input tensor of images and target
@@ -234,12 +255,18 @@ class SAM3DModuleLinear(LightningModule):
         loss, preds, targets = self.model_step(batch)
 
         # update and log metrics
-        self.test_loss(loss)
-        self.worst_loss(loss)
-        self.log("test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("test/worst_loss", self.worst_loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.test_gdloss(loss["ground_truth_iou"].mean())
+        self.worst_gdloss(loss["pairwise_iou"].mean())
+        self.test_pwloss(loss["ground_truth_iou"].mean())
+        self.worst_pwloss(loss["pairwise_iou"].mean())
+        self.log("test/loss", self.test_gdloss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("test/worst_loss", self.worst_gdloss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("test/pwloss", self.test_pwloss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log(
+            "test/worst_pwloss", self.test_pwloss, on_step=False, on_epoch=True, prog_bar=True
+        )
 
-        return OutputsWithLoss(preds=preds, loss=loss)
+        return SegmentationForwardOutput(preds=preds, loss=loss)
 
     def on_test_epoch_end(self) -> None:
         """Lightning hook that is called when a test epoch ends."""

@@ -9,7 +9,7 @@ defaults:
   - paths: default
   - extras: default
   - hydra: default
-  - callbacks: tiff_writing
+  - callbacks: default_eval
 
 task_name: "eval"
 
