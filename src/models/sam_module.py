@@ -9,6 +9,8 @@ from ultralytics.engine.results import Results
 from ultralytics.models import SAM
 from ultralytics.utils import IterableSimpleNamespace
 
+from src.models.types import OutputsWithLoss
+
 
 class IntersectionOverUnion:
     """IOU for binary segmentation."""
@@ -220,7 +222,9 @@ class SAM3DModuleLinear(LightningModule):
         "Lightning hook that is called when a validation epoch ends."
         pass
 
-    def test_step(self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int) -> None:
+    def test_step(
+        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
+    ) -> OutputsWithLoss:
         """Perform a single test step on a batch of data from the test set.
 
         :param batch: A batch of data (a tuple) containing the input tensor of images and target
@@ -234,6 +238,8 @@ class SAM3DModuleLinear(LightningModule):
         self.worst_loss(loss)
         self.log("test/loss", self.test_loss, on_step=False, on_epoch=True, prog_bar=True)
         self.log("test/worst_loss", self.worst_loss, on_step=False, on_epoch=True, prog_bar=True)
+
+        return OutputsWithLoss(preds=preds, loss=loss)
 
     def on_test_epoch_end(self) -> None:
         """Lightning hook that is called when a test epoch ends."""
