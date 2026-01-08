@@ -4,7 +4,7 @@ sam_checkpoint: ${paths.data_dir}/sam_b.pt
 sam_overrides:
   # See those hyperparameters to be overridden
   # DEFAULT_CFG: https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/default.yaml
-  conf: 0.25
+  conf: 0.75
   task: segment
   mode: predict
   # SAM Predictor generate method's params: https://docs.ultralytics.com/reference/models/sam/predict/#ultralytics.models.sam.predict.Predictor.generate
