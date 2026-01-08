@@ -1,3 +1,3 @@
 tiff_writing:
   _target_: src.utils.imageproc.save_on_disk.SaveSegmentOnTheFly
-  output: ${hydra:runtime.output_dir}/sam_urn_segmentation.tiff
+  output_file: ${hydra:runtime.output_dir}/sam_urn_segmentation.tiff
