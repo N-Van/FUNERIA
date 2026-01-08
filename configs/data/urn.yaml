@@ -1,6 +1,6 @@
 _target_: src.data.one_urn_datamodule.OneUrnDataModule
-filename: ${paths.data_dir}/urn_crop.tiff
-slice_jump: 5
+filename: ${paths.data_dir}original_urn__cropped_640.tif
+slice_jump: 1
 slice_image_size: 640
 # do not set the parameter to keep all the urn in one batch
 # projection_batch_size: 25 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)

@@ -99,7 +99,7 @@ class SAM3DModuleLinear(LightningModule):
         h, w = im_shape
         ys = np.arange(stride // 2, h, stride)
         xs = np.arange(stride // 2, w, stride)
-        pts = [(int(y), int(x)) for x in xs for y in ys]  # (x, y)
+        pts = [(int(x), int(y)) for x in xs for y in ys]  # (x, y)
         label = 1
         lbls = [label] * len(pts)
         return pts, lbls
@@ -117,48 +117,127 @@ class SAM3DModuleLinear(LightningModule):
             return None
         return (cast(torch.Tensor, masks.data) > binary_treshold).sum(dim=0) > 0
 
-    def forward(self, projections: torch.Tensor) -> torch.Tensor:
-        r"""Perform a forward pass through the model `self.net`.
+    def _filter_points_by_mask(self, points, urna_mask_np):
+        # points: list[(x,y)]
+        if urna_mask_np is None:
+            return points
+        return [(x, y) for (x, y) in points if urna_mask_np[y, x]]
 
-        :param projections: A tensor of images (shape (Z, 3, H, W)), Z \ is along the projection
-            axis)
-        :return: A tensor with the 3D binary mask
-        """
-        depth, _, height, width = projections.shape
-        mask_3D = torch.zeros((depth, height, width), dtype=torch.bool, device=self.device)
-        sam_inferrence_overrides = cast(
-            Optional[IterableSimpleNamespace], self.hparams["sam_overrides"]
-        )
-        points_stride = cast(int, self.hparams["points_stride"])
-        points_batch_size = cast(int, self.hparams["points_batch_size"])
-        points, labels = self.generate_full_grid(points_stride, (height, width))
+    def _filter_masks(self, masks_bool: np.ndarray, urna_mask_np, min_area, max_area):
+        # masks_bool: (N,H,W) bool
+        if urna_mask_np is not None:
+            masks_bool = np.logical_and(masks_bool, urna_mask_np[None, ...])
+
+        areas = masks_bool.reshape(masks_bool.shape[0], -1).sum(axis=1)
+        keep = (areas >= min_area) & (areas <= max_area)
+        return masks_bool[keep], areas, keep
+
+    @torch.inference_mode()
+    def infer_one_projection(
+        self,
+        frame: torch.Tensor,          # (1,3,H,W) torch
+        urna_mask: Optional[np.ndarray] = None,  # (H,W) bool
+        mode: str = "grid",           # "grid" | "points" | "auto"
+        grid_stride: int = 32,
+        points: Optional[list[tuple[int,int]]] = None,
+        labels: Optional[list[int]] = None,
+        points_batch_size: int = 25,
+        imgsz: Optional[int] = None,
+        min_area: int = 300,
+        max_area_ratio: float = 0.05,
+    ):
+        _, _, H, W = frame.shape
+        img_area = H * W
+        max_area = int(max_area_ratio * img_area)
+
+        if urna_mask is not None:
+            urna_mask = urna_mask.astype(bool)
+            if urna_mask.shape != (H, W):
+                raise ValueError(f"urna_mask must be {(H,W)} got {urna_mask.shape}")
         model = self.detached_sam_model.sam_model
-        for z in tqdm(range(projections.shape[0]), desc="Segmenting projections", unit="projs"):
-            frame = projections[z : z + 1]
-            # TODO: generate here the filtered points and labels
-            for i in tqdm(
-                range(0, len(points), points_batch_size),
-                desc="Processed prompt point batches",
-                unit="batches",
-            ):
-                results = model.predict(
+        overrides = self.hparams.get("sam_overrides", None)
+        overrides = dict(overrides) if overrides is not None else {}
+        imgsz = imgsz if imgsz is not None else min(H, W)
+
+        # prompts
+        if mode == "grid":
+            pts_all, lbls_all = self.generate_full_grid(grid_stride, (H, W))  # (x,y)
+            pts = self._filter_points_by_mask(pts_all, urna_mask)
+            lbls = [1] * len(pts)
+            if len(pts) == 0:
+                return np.zeros((0, H, W), dtype=bool), {"n_raw": 0, "n_keep": 0, "n_points": 0}
+        elif mode == "points":
+            if points is None:
+                raise ValueError("mode='points' needs points")
+            pts = points
+            lbls = labels if labels is not None else [1] * len(points)
+        elif mode == "auto":
+            pts, lbls = None, None
+        else:
+            raise ValueError("mode must be 'grid', 'points', or 'auto'")
+
+        # run SAM in batches if points provided
+        all_masks = []
+        if pts is None:
+            res = model.predict(source=frame, device=self.device, imgsz=imgsz, **overrides)[0]
+            mask = self.get_mask(res)
+            if mask is not None:
+                all_masks.append(mask.detach().cpu().numpy().astype(bool))
+        else:
+            for i in range(0, len(pts), points_batch_size):
+                res = model.predict(
                     source=frame,
-                    points=points[i : i + points_batch_size],
-                    labels=labels[i : i + points_batch_size],
+                    points=pts[i:i+points_batch_size],
+                    labels=lbls[i:i+points_batch_size],
                     device=self.device,
-                    imgsz=min(height, width),
-                    **dict(
-                        sam_inferrence_overrides if sam_inferrence_overrides is not None else {}
-                    ),
+                    imgsz=imgsz,
+                    **overrides,
                 )[0]
-                mask = self.get_mask(results)
-                if mask is not None:
-                    mask_3D[z].logical_or_(mask)
-                # TODO: use the scores (but with this line, not available in the API)
-                # scores = results.scores
-                # TODO: use the masks
-                # boxes = results.boxes
-        # TODO: use the scores and merge the boxes
+
+                if res.masks is not None:
+                    m = res.masks.data.detach().cpu().numpy()  # (N,H,W)
+                    m = (m > 0.5).astype(bool)
+                    all_masks.append(m)
+
+        if len(all_masks) == 0:
+            return np.zeros((0, H, W), dtype=bool), {"n_raw": 0, "n_keep": 0, "n_points": 0 if pts is None else len(pts)}
+
+        masks = np.concatenate([m if m.ndim == 3 else m[None, ...] for m in all_masks], axis=0)  # (N,H,W)
+        masks_f, areas, keep = self._filter_masks(masks, urna_mask, min_area, max_area)
+
+        info = {
+            "n_raw": int(masks.shape[0]),
+            "n_keep": int(masks_f.shape[0]),
+            "n_points": 0 if pts is None else len(pts),
+            "min_area": int(min_area),
+            "max_area": int(max_area),
+            "mode": mode,
+        }
+        return masks_f, info
+
+    def forward(self, projections: torch.Tensor, urna_masks: Optional[torch.Tensor] = None) -> torch.Tensor:
+        depth, _, H, W = projections.shape
+        mask_3D = torch.zeros((depth, H, W), dtype=torch.bool, device=self.device)
+
+        stride = int(self.hparams["points_stride"])
+        bsz = int(self.hparams["points_batch_size"])
+
+        for z in tqdm(range(depth), desc="Segmenting projections", unit="projs"):
+            frame = projections[z:z+1]  # (1,3,H,W)
+            urna_mask_np = None
+            if urna_masks is not None:
+                urna_mask_np = urna_masks[z].detach().cpu().numpy().astype(bool)
+
+            masks_f, info = self.infer_one_projection(
+                frame,
+                urna_mask=urna_mask_np,
+                mode="grid",
+                grid_stride=stride,
+                points_batch_size=bsz,
+            )
+            if masks_f.shape[0] > 0:
+                union = torch.from_numpy(masks_f.any(axis=0)).to(self.device)
+                mask_3D[z].logical_or_(union)
         return mask_3D
 
     def on_train_start(self) -> None:
