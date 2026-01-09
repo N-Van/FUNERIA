@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Literal, Optional, Tuple, cast
 
 import numpy as np
 import tifffile
@@ -13,20 +13,39 @@ def binarize_image(image: NDArray[Any]) -> NDArray[Any]:
 
 
 def open_and_resize(
-    tiff_path: Path, projection_axis: Literal[0, 1, 2], imgsz: int, boolify=False
-) -> NDArray[Any]:
+    tiff_path: Path,
+    projection_axis: Literal[0, 1, 2],
+    imgsz: Optional[int] = None,
+    boolify=False,
+) -> Tuple[NDArray[Any], int]:
     """Return a 3D volume with all axes excepted the projection one of dim imgsz.
 
     Store in the disk the resized tiff volume if newly produced.
 
     :param tiff_path: the path of the tiff raw image
     :param projection_axis: the axis that have not to be resized
-    :param imgsz: the width and height of each projection
-    :return: the resized image as a ndarray
+    :param imgsz: the width and height of each slice. If not provided, then it is expected the
+        source tiff image to have square slices.
+    :return: the resized image as a ndarray and its slice side size
     """
+    if imgsz is None:
+        raw_volume = tifffile.imread(tiff_path)
+        raw_shape = np.array(raw_volume.shape)
+        slice_shape = tuple(raw_shape[i] for i in range(3) if i != projection_axis)
+        if slice_shape[0] == slice_shape[1]:
+            raise Exception(
+                f"""The slices of the volume must be squares. Shape here is {slice_shape}.
+
+            To create a valid, isotropic (cubic) volume for the urn. Please,
+            use the src/utils.redim_urn.py script. See
+
+            python src/utils.redim_urn.py --help
+            """
+            )
+        return raw_volume, slice_shape[0]
     cached_image_path = tiff_path.parent / f"{tiff_path.stem}__{imgsz}_{projection_axis}.tiff"
     if cached_image_path.exists():
-        return tifffile.imread(cached_image_path)
+        return tifffile.imread(cached_image_path), imgsz
     raw_volume = tifffile.imread(tiff_path)
     raw_shape = np.array(raw_volume.shape)
 
@@ -41,4 +60,4 @@ def open_and_resize(
     print("Resizing the volume...")
     tifffile.imwrite(cached_image_path, resized_volume)
     print("Resized image stored in", cached_image_path)
-    return resized_volume
+    return resized_volume, imgsz

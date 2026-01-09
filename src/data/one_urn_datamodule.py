@@ -10,8 +10,9 @@ from numpy.typing import NDArray
 from torch.utils.data import DataLoader, Dataset
 from typing_extensions import override
 
-from src.utils.imageproc.resize import open_and_resize
 from src.utils.imageproc.image_25d import create_25d_image, create_25d_image_with_clahe
+from src.utils.imageproc.resize import open_and_resize
+
 
 class Compose:
     """Simple composer of functions."""
@@ -54,24 +55,35 @@ class OneUrnDataset(Dataset[Tuple[torch.Tensor, torch.Tensor]]):
         self,
         image_path: str,
         slice_jump: int,
-        slice_image_size: int,
         correct_segments_path: str,
         transforms: Compose,
+        rgb_transform: Callable,
         target_transforms: Compose,
-        projection_axis: Literal["x", "y", "z"] = "z",
+        slice_image_size: Optional[int] = None,
+        slicing_axis: Literal["x", "y", "z"] = "z",
     ) -> None:
         self.projection_axis = cast(
-            Literal[0, 1, 2], {k: i for i, k in enumerate(("z", "y", "x"))}[projection_axis]
+            Literal[0, 1, 2], {k: i for i, k in enumerate(("z", "y", "x"))}[slicing_axis]
         )
         self.slice_jump = slice_jump
-        image = open_and_resize(Path(image_path), self.projection_axis, slice_image_size)
-        self.image = image[..., np.newaxis].repeat(3, -1)
+        image, urn_slice_size = open_and_resize(
+            Path(image_path), self.projection_axis, slice_image_size
+        )
+        self.image = rgb_transform(image)  # shape (Z, S, S, 3)
         self.image_slice_number = self.image.shape[self.projection_axis] // self.slice_jump
         # WARN: the full resolution for targets has not been kept
         # what prevents to show the resolution issues of the segmentation
-        correct_segments = open_and_resize(
+        correct_segments, gd_slice_size = open_and_resize(
             Path(correct_segments_path), self.projection_axis, slice_image_size, boolify=True
         )
+        if urn_slice_size == gd_slice_size:
+            raise Exception(
+                f"""The ground truth and urn tiff files must have the same slice side size. Received {gd_slice_size} and {urn_slice_size}
+
+            See
+            python src/utils.redim_urn.py --help
+            """
+            )
         self.correct_segments = correct_segments
         self.transforms = transforms
         self.target_transforms = target_transforms
@@ -97,6 +109,9 @@ def move_axis(source, destination):
     """Move the axes of the volume."""
 
     def move_axis__forward(x: np.ndarray):
+        print("----------")
+        print(x.shape)
+        print("----------")
         return np.moveaxis(x, source, destination)
 
     return move_axis__forward
@@ -123,17 +138,39 @@ def to_tensor(dtype: torch.dtype):
     return to_tensor__forward
 
 
-def to_25dimage(clahe: bool) -> np.ndarray:
-    """Convert a 3D volume into a 2D image by extracting the slice at `slice_idx` along the z-axis."""
-    def to_2dimage__forward(volume: np.ndarray) -> np.ndarray:
+def to_25dimage(clahe: bool):
+    """Convert a 3D volume into a 2D image by extracting the slice at `slice_idx` along the
+    z-axis."""
+
+    def to_25dimage__forward(volume: np.ndarray) -> np.ndarray:
+        new_volume = np.empty((*volume.shape, 3), dtype=volume.dtype)
         if clahe:
             for slice_idx in range(volume.shape[0]):
-                volume[slice_idx] = create_25d_image_with_clahe(volume, slice_idx, use_clahe=True)
+                new_volume[slice_idx] = create_25d_image_with_clahe(
+                    volume.astype(np.uint8), slice_idx, use_clahe=True
+                )
         else:
             for slice_idx in range(volume.shape[0]):
-                volume[slice_idx] = create_25d_image(volume, slice_idx, normalize=False)
-    return to_2dimage__forward
-    
+                new_volume[slice_idx] = create_25d_image(volume, slice_idx, normalize=False)
+        return new_volume
+
+    return to_25dimage__forward
+
+
+def grayscale_to_rgb():
+    """Duplicate the single channel of the volume to return a grayscale rgb volume."""
+
+    def grayscale_to_rgb__forward(volume: np.ndarray) -> np.ndarray:
+        """Forward function.
+
+        :param volume: shape (Z, S, S)
+        :return: shape (Z, S, S, 3)
+        """
+        return volume[..., np.newaxis].repeat(3, -1)
+
+    return grayscale_to_rgb__forward
+
+
 class OneUrnDataModule(LightningDataModule):
     """`LightningDataModule` returning segments from a tiff file of one funeral urn.
 
@@ -178,7 +215,7 @@ class OneUrnDataModule(LightningDataModule):
         ground_truth_filename: str,
         train_val_test_split: Tuple[int, int, int] = (0, 0, 1),
         slice_jump: int = 25,
-        slice_image_size: int = 640,
+        slice_image_size: Optional[int] = None,
         slicing_axis: Literal["x", "y", "z"] = "z",
         projection_batch_size: Optional[int] = None,  # projection frames per batch
         use_25d_image: Literal["clahe", True, False] = False,
@@ -191,7 +228,7 @@ class OneUrnDataModule(LightningDataModule):
         :param ground_truth_filename: The file of the urn ground truth segmentation tiff image.
         :param train_val_test_split: The train, validation and test splits (number of slices). Defaults to `(0, 0, 1)`.
         :param slice_jump: The number of slices to be skipped along the slicing axis
-        :param slice_image_size: The width and height value of a projection. A resized tiff image will be stored on disk.
+        :param slice_image_size: The width and height value of a projection. If provided, a resized tiff image will be stored on disk. Else, it is expected the urn and ground truth tiff volumes to be isotropic.
         :param slicing_axis: The axis along which to slice the urn volume. Either `"x"`, `"y"` or `"z"`. Defaults to `"z"`.
         :param projection_batch_size: The number of projections per batch. Defaults to `None` to send all projections at once.
         :param use_25d_image: Whether to use 2.5D images with CLAHE preprocessing (`"clahe"`), without CLAHE (`True`).
@@ -210,9 +247,13 @@ class OneUrnDataModule(LightningDataModule):
                 # adapt the shape to ultralytics' spec
                 move_axis((2, 0, 1), (0, 1, 2)),
                 normalize_channel(),
-                *([to_25dimage(clahe=True)] if use_25d_image == "clahe" else [to_25dimage(clahe=False)] if use_25d_image else []),
                 to_tensor(torch.float32),
             ]
+        )
+        self.rgb_transform = (
+            to_25dimage(clahe=True)
+            if use_25d_image == "clahe"
+            else (to_25dimage(clahe=False) if use_25d_image else grayscale_to_rgb())
         )
         self.target_transforms = Compose([to_tensor(torch.bool)])
 
@@ -235,13 +276,14 @@ class OneUrnDataModule(LightningDataModule):
         Do not use it to assign state (self.x = y).
         """
         self._cached_data_test = OneUrnDataset(
-            cast(str, self.hparams.get("filename")),
-            cast(int, self.hparams.get("slice_jump")),
-            cast(int, self.hparams.get("slice_image_size")),
-            cast(str, self.hparams.get("ground_truth_filename")),
-            self.transforms,
-            self.target_transforms,
-            cast(Literal["x", "y", "z"], self.hparams.get("slicing_axis")),
+            image_path=cast(str, self.hparams.get("filename")),
+            slice_jump=cast(int, self.hparams.get("slice_jump")),
+            slice_image_size=cast(Optional[int], self.hparams.get("slice_image_size")),
+            correct_segments_path=cast(str, self.hparams.get("ground_truth_filename")),
+            transforms=self.transforms,
+            rgb_transform=self.rgb_transform,
+            target_transforms=self.target_transforms,
+            slicing_axis=cast(Literal["x", "y", "z"], self.hparams.get("slicing_axis")),
         )
 
     def setup(self, stage: Optional[str] = None) -> None:

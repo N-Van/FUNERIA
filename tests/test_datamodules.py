@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import pytest
@@ -22,8 +23,13 @@ def generate_mock_urn_data(
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize(["slice_jump", "batch_size"], [(5, 1), (10, 1), (5, 5), (10, 5)])
-def test_one_urn_datamodule(slice_jump: int, batch_size: int) -> None:
+@pytest.mark.parametrize(
+    ["slice_jump", "batch_size", "use_25d_image"],
+    [(5, 1, False), (10, 1, False), (5, 5, False), (10, 5, False), (5, 5, True), (5, 5, "clahe")],
+)
+def test_one_urn_datamodule(
+    slice_jump: int, batch_size: int, use_25d_image: Literal["clahe", True, False]
+) -> None:
     """Tests `OneUrnDataModule` to verify that a test tiff file can be opened correctly, that the
     necessary attributes were created (e.g., the dataloader objects), and that dtypes and batch
     sizes correctly match.
@@ -50,6 +56,7 @@ def test_one_urn_datamodule(slice_jump: int, batch_size: int) -> None:
         slice_image_size=slice_image_size,
         projection_batch_size=batch_size,
         slicing_axis=slicing_axis,
+        use_25d_image=use_25d_image,
     )
     dm.prepare_data()
 

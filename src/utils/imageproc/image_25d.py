@@ -1,9 +1,9 @@
-import numpy as np
 import cv2
+import numpy as np
 
 
 def normalize_to_uint8(img):
-    """Normalise une image en uint8"""
+    """Normalise une image en uint8."""
     if img.dtype == np.uint8:
         return img
     mn, mx = float(img.min()), float(img.max())
@@ -11,16 +11,21 @@ def normalize_to_uint8(img):
         return ((img - mn) / (mx - mn) * 255).astype(np.uint8)
     return np.zeros_like(img, dtype=np.uint8)
 
+
 clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+
+
 def apply_clahe(sl, use_clahe=True):
-    sl_prep=sl.copy()
+    sl_prep = sl.copy()
     if use_clahe:
         sl_prep = clahe.apply(sl_prep)
     return sl_prep  # [H,W]
 
+
 def convert_rgb(picture_3D: np.ndarray) -> np.ndarray:
     # convert [H,W] en  [H,W,3]
     return np.repeat(picture_3D[..., np.newaxis], 3, -1)
+
 
 def create_25d_image(volume, slice_idx, normalize=True):
     D, H, W = volume.shape
@@ -47,8 +52,9 @@ def create_25d_image(volume, slice_idx, normalize=True):
 
 
 def create_25d_image_with_clahe(volume, slice_idx, use_clahe=True):
-    """
-    Version avec CLAHE appliqué à chaque slice avant empilement
+    """Version avec CLAHE appliqué à chaque slice avant empilement.
+
+    :param volume: shape (D, H, W)
     """
     D, H, W = volume.shape
 
