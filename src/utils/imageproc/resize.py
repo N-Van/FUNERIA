@@ -32,7 +32,7 @@ def open_and_resize(
         raw_volume = tifffile.imread(tiff_path)
         raw_shape = np.array(raw_volume.shape)
         slice_shape = tuple(raw_shape[i] for i in range(3) if i != projection_axis)
-        if slice_shape[0] == slice_shape[1]:
+        if slice_shape[0] != slice_shape[1]:
             raise Exception(
                 f"""The slices of the volume must be squares. Shape here is {slice_shape}.
 
