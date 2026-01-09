@@ -27,13 +27,13 @@ def convert_rgb(picture_3D: np.ndarray) -> np.ndarray:
     return np.repeat(picture_3D[..., np.newaxis], 3, -1)
 
 
-def create_25d_image(volume, slice_idx, slice_jump, normalize=True):
+def create_25d_image(volume, slice_idx, normalize=True):
     D, H, W = volume.shape
 
     # Gérer les cas limites (bords du volume)
-    idx_prev = max(0, slice_idx - slice_jump)
+    idx_prev = max(0, slice_idx - 1)
     idx_curr = slice_idx
-    idx_next = min(D - 1, slice_idx + slice_jump)
+    idx_next = min(D - 1, slice_idx + 1)
 
     # Extraire les slices
     slice_prev = volume[idx_prev]
@@ -51,7 +51,7 @@ def create_25d_image(volume, slice_idx, slice_jump, normalize=True):
     return img_25d
 
 
-def create_25d_image_with_clahe(volume, slice_idx, slice_jump, use_clahe=True):
+def create_25d_image_with_clahe(volume, slice_idx, use_clahe=True):
     """Version avec CLAHE appliqué à chaque slice avant empilement.
 
     :param volume: shape (D, H, W)
@@ -59,9 +59,9 @@ def create_25d_image_with_clahe(volume, slice_idx, slice_jump, use_clahe=True):
     D, H, W = volume.shape
 
     # Gérer les cas limites
-    idx_prev = max(0, slice_idx - slice_jump)
+    idx_prev = max(0, slice_idx - 1)
     idx_curr = slice_idx
-    idx_next = min(D - 1, slice_idx + slice_jump)
+    idx_next = min(D - 1, slice_idx + 1)
 
     # Extraire et prétraiter les slices
     slice_prev = apply_clahe(volume[idx_prev], use_clahe=use_clahe)
