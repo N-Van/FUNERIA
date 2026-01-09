@@ -76,7 +76,7 @@ class OneUrnDataset(Dataset[Tuple[torch.Tensor, torch.Tensor]]):
         correct_segments, gd_slice_size = open_and_resize(
             Path(correct_segments_path), self.projection_axis, slice_image_size, boolify=True
         )
-        if urn_slice_size == gd_slice_size:
+        if urn_slice_size != gd_slice_size:
             raise Exception(
                 f"""The ground truth and urn tiff files must have the same slice side size. Received {gd_slice_size} and {urn_slice_size}
 
