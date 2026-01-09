@@ -109,9 +109,6 @@ def move_axis(source, destination):
     """Move the axes of the volume."""
 
     def move_axis__forward(x: np.ndarray):
-        print("----------")
-        print(x.shape)
-        print("----------")
         return np.moveaxis(x, source, destination)
 
     return move_axis__forward
