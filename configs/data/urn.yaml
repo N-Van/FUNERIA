@@ -6,5 +6,7 @@ slice_image_size: 640
 # do not set the parameter to keep all the urn in one batch
 # projection_batch_size: 25 # Needs to be divisible by the number of devices (e.g., if in a distributed setup)
 train_val_test_split: [0, 0, 1]
+use_25d_image: False
 num_workers: 0
 pin_memory: False
+slicing_axis: z

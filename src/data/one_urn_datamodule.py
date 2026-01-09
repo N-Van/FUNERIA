@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader, Dataset
 from typing_extensions import override
 
 from src.utils.imageproc.resize import open_and_resize
-
+from src.utils.imageproc.image_25d import create_25d_image, create_25d_image_with_clahe
 
 class Compose:
     """Simple composer of functions."""
@@ -123,6 +123,17 @@ def to_tensor(dtype: torch.dtype):
     return to_tensor__forward
 
 
+def to_25dimage(clahe: bool) -> np.ndarray:
+    """Convert a 3D volume into a 2D image by extracting the slice at `slice_idx` along the z-axis."""
+    def to_2dimage__forward(volume: np.ndarray) -> np.ndarray:
+        if clahe:
+            for slice_idx in range(volume.shape[0]):
+                volume[slice_idx] = create_25d_image_with_clahe(volume, slice_idx, use_clahe=True)
+        else:
+            for slice_idx in range(volume.shape[0]):
+                volume[slice_idx] = create_25d_image(volume, slice_idx, normalize=False)
+    return to_2dimage__forward
+    
 class OneUrnDataModule(LightningDataModule):
     """`LightningDataModule` returning segments from a tiff file of one funeral urn.
 
@@ -170,16 +181,20 @@ class OneUrnDataModule(LightningDataModule):
         slice_image_size: int = 640,
         slicing_axis: Literal["x", "y", "z"] = "z",
         projection_batch_size: Optional[int] = None,  # projection frames per batch
+        use_25d_image: Literal["clahe", True, False] = False,
         num_workers: int = 0,
         pin_memory: bool = False,
     ) -> None:
         """Initialize a `OneUrnDataModule`.
 
         :param filename: The file of the urn tiff image.
+        :param ground_truth_filename: The file of the urn ground truth segmentation tiff image.
         :param train_val_test_split: The train, validation and test splits (number of slices). Defaults to `(0, 0, 1)`.
         :param slice_jump: The number of slices to be skipped along the slicing axis
         :param slice_image_size: The width and height value of a projection. A resized tiff image will be stored on disk.
+        :param slicing_axis: The axis along which to slice the urn volume. Either `"x"`, `"y"` or `"z"`. Defaults to `"z"`.
         :param projection_batch_size: The number of projections per batch. Defaults to `None` to send all projections at once.
+        :param use_25d_image: Whether to use 2.5D images with CLAHE preprocessing (`"clahe"`), without CLAHE (`True`).
         :param num_workers: The number of workers. Defaults to `0`.
         :param pin_memory: Whether to pin memory. Defaults to `False`.
         """
@@ -195,6 +210,7 @@ class OneUrnDataModule(LightningDataModule):
                 # adapt the shape to ultralytics' spec
                 move_axis((2, 0, 1), (0, 1, 2)),
                 normalize_channel(),
+                *([to_25dimage(clahe=True)] if use_25d_image == "clahe" else [to_25dimage(clahe=False)] if use_25d_image else []),
                 to_tensor(torch.float32),
             ]
         )
