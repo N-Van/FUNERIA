@@ -54,7 +54,6 @@ class OneUrnDataset(Dataset[Tuple[torch.Tensor, torch.Tensor]]):
     def __init__(
         self,
         image_path: str,
-        slice_jump: int,
         correct_segments_path: str,
         transforms: Compose,
         rgb_transform: Callable,
@@ -65,12 +64,11 @@ class OneUrnDataset(Dataset[Tuple[torch.Tensor, torch.Tensor]]):
         self.projection_axis = cast(
             Literal[0, 1, 2], {k: i for i, k in enumerate(("z", "y", "x"))}[slicing_axis]
         )
-        self.slice_jump = slice_jump
         image, urn_slice_size = open_and_resize(
             Path(image_path), self.projection_axis, slice_image_size
         )
         self.image = rgb_transform(image)  # shape (Z, S, S, 3)
-        self.image_slice_number = self.image.shape[self.projection_axis] // self.slice_jump
+        self.image_slice_number = self.image.shape[self.projection_axis]
         # WARN: the full resolution for targets has not been kept
         # what prevents to show the resolution issues of the segmentation
         correct_segments, gd_slice_size = open_and_resize(
@@ -93,7 +91,7 @@ class OneUrnDataset(Dataset[Tuple[torch.Tensor, torch.Tensor]]):
         """Return a batch of projections fractioning one urn."""
         # TODO: why taking the first picture instead of the (irpn // pn) ones ?
         # TODO: interpolate
-        idx_to_take = index * self.slice_jump
+        idx_to_take = index
         projection_batch = np.take(self.image, indices=idx_to_take, axis=self.projection_axis)
         correct_segment_batch = np.take(
             self.correct_segments, indices=idx_to_take, axis=self.projection_axis
@@ -135,7 +133,7 @@ def to_tensor(dtype: torch.dtype):
     return to_tensor__forward
 
 
-def to_25dimage(clahe: bool):
+def to_25dimage(clahe: bool, slice_jump: int):
     """Convert a 3D volume into a 2D image by extracting the slice at `slice_idx` along the
     z-axis."""
 
@@ -144,11 +142,13 @@ def to_25dimage(clahe: bool):
         if clahe:
             for slice_idx in range(volume.shape[0]):
                 new_volume[slice_idx] = create_25d_image_with_clahe(
-                    volume.astype(np.uint8), slice_idx, use_clahe=True
+                    volume.astype(np.uint8), slice_idx, slice_jump, use_clahe=True
                 )
         else:
             for slice_idx in range(volume.shape[0]):
-                new_volume[slice_idx] = create_25d_image(volume, slice_idx, normalize=False)
+                new_volume[slice_idx] = create_25d_image(
+                    volume, slice_idx, slice_jump, normalize=False
+                )
         return new_volume
 
     return to_25dimage__forward
@@ -224,7 +224,7 @@ class OneUrnDataModule(LightningDataModule):
         :param filename: The file of the urn tiff image.
         :param ground_truth_filename: The file of the urn ground truth segmentation tiff image.
         :param train_val_test_split: The train, validation and test splits (number of slices). Defaults to `(0, 0, 1)`.
-        :param slice_jump: The number of slices to be skipped along the slicing axis
+        :param slice_jump: The number of slices to jump for the 2.5D encoding
         :param slice_image_size: The width and height value of a projection. If provided, a resized tiff image will be stored on disk. Else, it is expected the urn and ground truth tiff volumes to be isotropic.
         :param slicing_axis: The axis along which to slice the urn volume. Either `"x"`, `"y"` or `"z"`. Defaults to `"z"`.
         :param projection_batch_size: The number of projections per batch. Defaults to `None` to send all projections at once.
@@ -248,9 +248,13 @@ class OneUrnDataModule(LightningDataModule):
             ]
         )
         self.rgb_transform = (
-            to_25dimage(clahe=True)
+            to_25dimage(clahe=True, slice_jump=slice_jump)
             if use_25d_image == "clahe"
-            else (to_25dimage(clahe=False) if use_25d_image else grayscale_to_rgb())
+            else (
+                to_25dimage(clahe=False, slice_jump=slice_jump)
+                if use_25d_image
+                else grayscale_to_rgb()
+            )
         )
         self.target_transforms = Compose([to_tensor(torch.bool)])
 
@@ -274,7 +278,6 @@ class OneUrnDataModule(LightningDataModule):
         """
         self._cached_data_test = OneUrnDataset(
             image_path=cast(str, self.hparams.get("filename")),
-            slice_jump=cast(int, self.hparams.get("slice_jump")),
             slice_image_size=cast(Optional[int], self.hparams.get("slice_image_size")),
             correct_segments_path=cast(str, self.hparams.get("ground_truth_filename")),
             transforms=self.transforms,
