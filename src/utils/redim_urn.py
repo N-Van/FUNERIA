@@ -65,7 +65,6 @@ def pad_to_cube_center(vol: np.ndarray, pad_value: float = 0.0):
     )
     return padded, (pz0, pz1, py0, py1, px0, px1), S
 
-
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--input", required=True, type=str)
@@ -90,7 +89,7 @@ def main():
         raise ValueError(f"Expected (Z,Y,X), got shape {vol.shape}")
     vol = vol.astype(np.float32)
     orig_shape = tuple(vol.shape)
-    tqdm.write(f"     Loaded shape={orig_shape} dtype=float32")
+    tqdm.write(f"     Loaded shape={orig_shape} ")
 
     tqdm.write("[2/4] Cropping with provided ranges...")
     Z, Y, X = vol.shape
@@ -119,7 +118,7 @@ def main():
         x = min(target, out_vol.shape[2])
         fixed[:z, :y, :x] = out_vol[:z, :y, :x]
         out_vol = fixed
-        tqdm.write(f" Note: adjusted output to exact cube {out_vol.shape}")
+        tqdm.write(f" adjusted output to exact cube {out_vol.shape}")
 
     tiff.imwrite(str(out), out_vol.astype(np.float32))
     tqdm.write(f" Saved: {out} shape={out_vol.shape}")
