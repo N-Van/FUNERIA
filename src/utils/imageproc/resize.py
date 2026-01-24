@@ -47,6 +47,8 @@ def open_and_resize(
     if cached_image_path.exists():
         return tifffile.imread(cached_image_path), imgsz
     raw_volume = tifffile.imread(tiff_path)
+    print(f"[open_and_resize] RAW volume shape={raw_volume.shape} from {tiff_path}")
+
     raw_shape = np.array(raw_volume.shape)
 
     def keep_dim(axis_nb: int) -> int:
@@ -58,6 +60,8 @@ def open_and_resize(
     if boolify:
         resized_volume = binarize_image(resized_volume)
     print("Resizing the volume...")
+    print(f"[open_and_resize] resized volume shape={resized_volume.shape}, zoom_factor={zoom_factor}")
+
     tifffile.imwrite(cached_image_path, resized_volume)
     print("Resized image stored in", cached_image_path)
     return resized_volume, imgsz
