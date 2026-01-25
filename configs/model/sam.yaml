@@ -4,7 +4,7 @@ sam_checkpoint: ${paths.data_dir}/sam_b.pt
 sam_overrides:
   # See those hyperparameters to be overridden
   # DEFAULT_CFG: https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/default.yaml
-  conf: 0.75
+  conf: 0.5
   task: segment
   mode: predict
   # SAM Predictor generate method's params: https://docs.ultralytics.com/reference/models/sam/predict/#ultralytics.models.sam.predict.Predictor.generate
@@ -22,6 +22,13 @@ sam_overrides:
   #  iou: 0.7
   #  retina_masks: True
 
-points_stride: 32
+#PROMPTS PARAMETERS
+points_stride: 48 #ignored if mode is not grid
 points_batch_size: 25
-prompt_strategy: grid
+# paramètres d’inférence (pour infer_one_projection)
+infer:
+  mode: grid          # auto | grid | points
+  grid_stride: 32     # utilisé si mode=grid
+  min_area: 0
+  max_area_ratio: 0.05
+  imgsz: null         # null => min(H,W)

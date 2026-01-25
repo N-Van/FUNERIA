@@ -69,14 +69,12 @@ class OneUrnDataset(Dataset[Tuple[torch.Tensor, torch.Tensor]]):
         image, urn_slice_size = open_and_resize(
             Path(image_path), self.projection_axis, slice_image_size
         )
-        self.image = rgb_transform(image)  # shape (Z, S, S, 3)
-        self.image_slice_number = self.image.shape[self.projection_axis] // self.slice_jump
         # WARN: the full resolution for targets has not been kept
         # what prevents to show the resolution issues of the segmentation
         correct_segments, gd_slice_size = open_and_resize(
             Path(correct_segments_path), self.projection_axis, slice_image_size, boolify=True
         )
-        if urn_slice_size == gd_slice_size:
+        if urn_slice_size != gd_slice_size:
             raise Exception(
                 f"""The ground truth and urn tiff files must have the same slice side size. Received {gd_slice_size} and {urn_slice_size}
 
@@ -84,21 +82,31 @@ class OneUrnDataset(Dataset[Tuple[torch.Tensor, torch.Tensor]]):
             python src/utils.redim_urn.py --help
             """
             )
-        self.correct_segments = correct_segments
+        self.raw_image = image                     # (Z,H,W) brut
+        self.correct_segments = correct_segments   # (Z,H,W) bool
+
+        self.image = rgb_transform(self.raw_image) # (Z,H,W,3) ou (Z,H,W,3) en 25D
+
+        self.image_slice_number = self.raw_image.shape[0] // self.slice_jump
         self.transforms = transforms
         self.target_transforms = target_transforms
 
     @override
-    def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Return a batch of projections fractioning one urn."""
         # TODO: why taking the first picture instead of the (irpn // pn) ones ?
         # TODO: interpolate
-        idx_to_take = index * self.slice_jump
-        projection_batch = np.take(self.image, indices=idx_to_take, axis=self.projection_axis)
-        correct_segment_batch = np.take(
-            self.correct_segments, indices=idx_to_take, axis=self.projection_axis
-        )
-        return self.transforms(projection_batch), self.target_transforms(correct_segment_batch)
+        idx = index * self.slice_jump
+        projection_slice = self.image[idx]            # (H,W,3)
+        gt_slice = self.correct_segments[idx]         # (H,W)
+        raw_slice = self.raw_image[idx]               # (H,W)
+
+        urna_np = (raw_slice.astype(np.float32) > 60.0)
+        urna = torch.as_tensor(urna_np, dtype=torch.bool)
+
+        x = self.transforms(projection_slice)
+        y = self.target_transforms(gt_slice)
+        return x, y, urna
 
     def __len__(self) -> int:
         """Return the number of projections."""
@@ -109,9 +117,9 @@ def move_axis(source, destination):
     """Move the axes of the volume."""
 
     def move_axis__forward(x: np.ndarray):
-        print("----------")
-        print(x.shape)
-        print("----------")
+        # print("----------")
+        # print(x.shape)
+        # print("----------")
         return np.moveaxis(x, source, destination)
 
     return move_axis__forward

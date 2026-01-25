@@ -1,4 +1,4 @@
-from typing import Literal, Optional, Tuple, cast
+from typing import Any, Dict, Literal, Optional, Tuple, Union, cast
 
 import numpy as np
 import torch
@@ -84,6 +84,7 @@ class SAM3DModuleLinear(LightningModule):
         points_batch_size: int = 25,
         # TODO: define custom prompt strategy
         prompt_strategy: Optional[Literal["grid"]] = None,
+        infer: Optional[Dict[str, Any]] = None,  
     ) -> None:
         """Initialize a `SAM3DModuleLinear`.
 
@@ -238,7 +239,13 @@ class SAM3DModuleLinear(LightningModule):
         depth, _, H, W = projections.shape
         mask_3D = torch.zeros((depth, H, W), dtype=torch.bool, device=self.device)
 
-        stride = int(self.hparams["points_stride"])
+        infer_cfg = dict(self.hparams.get("infer", {}))
+        mode = infer_cfg.get("mode", "grid")
+        grid_stride = int(infer_cfg.get("grid_stride", self.hparams["points_stride"]))
+        # min_area = int(infer_cfg.get("min_area", 300))
+        # max_area_ratio = float(infer_cfg.get("max_area_ratio", 0.05))
+        imgsz = infer_cfg.get("imgsz", None)
+
         bsz = int(self.hparams["points_batch_size"])
 
         for z in tqdm(range(depth), desc="Segmenting projections", unit="projs"):
@@ -250,9 +257,12 @@ class SAM3DModuleLinear(LightningModule):
             masks_f, info = self.infer_one_projection(
                 frame,
                 urna_mask=urna_mask_np,
-                mode="grid",
-                grid_stride=stride,
+                mode=mode,
+                grid_stride=grid_stride,
                 points_batch_size=bsz,
+                imgsz=imgsz,
+                # min_area=min_area,
+                # max_area_ratio=max_area_ratio,
             )
             if masks_f.shape[0] > 0:
                 union = torch.from_numpy(masks_f.any(axis=0)).to(self.device)
@@ -264,8 +274,9 @@ class SAM3DModuleLinear(LightningModule):
         pass
 
     def model_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor]
-    ) -> Tuple[SegmentationLoss, torch.Tensor, torch.Tensor]:
+        self, batch: Union[
+            Tuple[torch.Tensor, torch.Tensor],
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]) -> Tuple[SegmentationLoss, torch.Tensor, torch.Tensor]:
         """Perform a single model step on a batch of data.
 
                 :param batch: A batch of data (a tuple) containing as input tensor \
@@ -277,10 +288,13 @@ class SAM3DModuleLinear(LightningModule):
                     - A tensor of predictions.
                     - A tensor of target labels.
         """
-        x, y = batch
-        mask_3D = self.forward(x)
+        if len(batch) == 2:
+            x, y = batch
+            urna = None
+        else:
+            x, y, urna = batch
+        mask_3D = self.forward(x, urna_masks=urna)
 
-        # first loss: compare with the ground truth
         gd_loss = self.criterion(mask_3D, y)
 
         # second loss: pairwise-slice similarity
