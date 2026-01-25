@@ -31,7 +31,9 @@ def open_and_resize(
     if imgsz is None:
         raw_volume = tifffile.imread(tiff_path)
         raw_shape = np.array(raw_volume.shape)
+        print(f"[open_and_resize] raw_shape={raw_shape} projection_axis={projection_axis}")
         slice_shape = tuple(raw_shape[i] for i in range(3) if i != projection_axis)
+        print(f"[open_and_resize] slice_shape={slice_shape}")
         if slice_shape[0] != slice_shape[1]:
             raise Exception(
                 f"""The slices of the volume must be squares. Shape here is {slice_shape}.
@@ -60,7 +62,9 @@ def open_and_resize(
     if boolify:
         resized_volume = binarize_image(resized_volume)
     print("Resizing the volume...")
-    print(f"[open_and_resize] resized volume shape={resized_volume.shape}, zoom_factor={zoom_factor}")
+    print(
+        f"[open_and_resize] resized volume shape={resized_volume.shape}, zoom_factor={zoom_factor}"
+    )
 
     tifffile.imwrite(cached_image_path, resized_volume)
     print("Resized image stored in", cached_image_path)

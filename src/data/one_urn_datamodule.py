@@ -67,8 +67,6 @@ class OneUrnDataset(Dataset[Tuple[torch.Tensor, torch.Tensor]]):
         image, urn_slice_size = open_and_resize(
             Path(image_path), self.projection_axis, slice_image_size
         )
-        self.image = rgb_transform(image)  # shape (Z, S, S, 3)
-        self.image_slice_number = self.image.shape[self.projection_axis]
         # WARN: the full resolution for targets has not been kept
         # what prevents to show the resolution issues of the segmentation
         correct_segments, gd_slice_size = open_and_resize(
@@ -82,21 +80,35 @@ class OneUrnDataset(Dataset[Tuple[torch.Tensor, torch.Tensor]]):
             python src/utils.redim_urn.py --help
             """
             )
-        self.correct_segments = correct_segments
+        self.raw_image = image  # (Z,H,W) brut
+        self.correct_segments = correct_segments  # (Z,H,W) bool
+
+        self.image = rgb_transform(self.raw_image)  # (Z,H,W,3) ou (Z,H,W,3) en 25D
+
+        self.image_slice_number = self.image.shape[self.projection_axis]
         self.transforms = transforms
         self.target_transforms = target_transforms
 
     @override
-    def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Return a batch of projections fractioning one urn."""
-        # TODO: why taking the first picture instead of the (irpn // pn) ones ?
-        # TODO: interpolate
         idx_to_take = index
-        projection_batch = np.take(self.image, indices=idx_to_take, axis=self.projection_axis)
-        correct_segment_batch = np.take(
+        projection_slice = np.take(
+            self.image, indices=idx_to_take, axis=self.projection_axis
+        )  # (H,W,3)
+        gt_slice = np.take(
             self.correct_segments, indices=idx_to_take, axis=self.projection_axis
-        )
-        return self.transforms(projection_batch), self.target_transforms(correct_segment_batch)
+        )  # (H,W)
+        raw_slice = np.take(
+            self.raw_image, indices=idx_to_take, axis=self.projection_axis
+        )  # (H,W)
+
+        urna_np = raw_slice.astype(np.float32) > 60.0
+        urna = torch.as_tensor(urna_np, dtype=torch.bool)
+
+        x = self.transforms(projection_slice)
+        y = self.target_transforms(gt_slice)
+        return x, y, urna
 
     def __len__(self) -> int:
         """Return the number of projections."""
