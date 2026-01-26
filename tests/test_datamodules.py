@@ -54,7 +54,7 @@ def test_one_urn_datamodule(
         train_val_test_split=(0, 0, 1),
         slice_jump=slice_jump,
         slice_image_size=slice_image_size,
-        projection_batch_size=batch_size,
+        slice_batch_size=batch_size,
         slicing_axis=slicing_axis,
         use_25d_image=use_25d_image,
     )

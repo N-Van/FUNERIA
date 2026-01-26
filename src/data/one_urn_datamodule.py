@@ -225,7 +225,7 @@ class OneUrnDataModule(LightningDataModule):
         slice_jump: int = 25,
         slice_image_size: Optional[int] = None,
         slicing_axis: Literal["x", "y", "z"] = "z",
-        projection_batch_size: Optional[int] = None,  # projection frames per batch
+        slice_batch_size: Optional[int] = None,  # projection frames per batch
         use_25d_image: Literal["clahe", True, False] = False,
         num_workers: int = 0,
         pin_memory: bool = False,
@@ -238,7 +238,7 @@ class OneUrnDataModule(LightningDataModule):
         :param slice_jump: The number of slices to jump for the 2.5D encoding
         :param slice_image_size: The width and height value of a projection. If provided, a resized tiff image will be stored on disk. Else, it is expected the urn and ground truth tiff volumes to be isotropic.
         :param slicing_axis: The axis along which to slice the urn volume. Either `"x"`, `"y"` or `"z"`. Defaults to `"z"`.
-        :param projection_batch_size: The number of projections per batch. Defaults to `None` to send all projections at once.
+        :param slice_batch_size: The number of projections per batch. Defaults to `None` to send all projections at once.
         :param use_25d_image: Whether to use 2.5D images with CLAHE preprocessing (`"clahe"`), without CLAHE (`True`).
         :param num_workers: The number of workers. Defaults to `0`.
         :param pin_memory: Whether to pin memory. Defaults to `False`.
@@ -277,7 +277,7 @@ class OneUrnDataModule(LightningDataModule):
         # while preprocess the volume in the prepare_data method
         self._cached_data_test: Optional[OneUrnDataset] = None
 
-        self.batch_size_per_device = projection_batch_size
+        self.batch_size_per_device = slice_batch_size
 
     def prepare_data(self) -> None:
         """Download data if needed. Lightning ensures that `self.prepare_data()` is called only
@@ -308,7 +308,7 @@ class OneUrnDataModule(LightningDataModule):
         :param stage: The stage to setup. Either `"fit"`, `"validate"`, `"test"`, or `"predict"`. Defaults to ``None``.
         """
         # Divide batch size by the number of devices.
-        batch_size = cast(Optional[int], self.hparams.get("projection_batch_size"))
+        batch_size = cast(Optional[int], self.hparams.get("slice_batch_size"))
         if batch_size is not None and self.trainer is not None:
             if batch_size % self.trainer.world_size != 0:
                 raise RuntimeError(
