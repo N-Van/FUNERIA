@@ -1,4 +1,3 @@
-import math
 from pathlib import Path
 from typing import Any, Callable, Dict, Literal, Optional, Tuple, cast
 
@@ -45,7 +44,7 @@ class UrnDataset(Dataset[Tuple[NDArray[Any], NDArray[np.bool_]]]):
         return image, correct_segments
 
 
-class OneUrnDataset(Dataset[Tuple[torch.Tensor, torch.Tensor]]):
+class OneUrnDataset(Dataset[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]):
     """A Dataset which iterate over the projections of one urn along a defined axis.
 
     An item return a projection numpy picture of shape (S, S, 3) (H = W)

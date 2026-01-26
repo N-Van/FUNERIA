@@ -1,4 +1,4 @@
-from typing import Any, Dict, Literal, Optional, Tuple, Union, cast
+from typing import Any, Dict, Optional, Tuple, cast
 
 import numpy as np
 import torch
@@ -82,8 +82,6 @@ class SAM3DModuleLinear(LightningModule):
         sam_overrides: Optional[IterableSimpleNamespace] = None,
         points_stride: int = 32,
         points_batch_size: int = 25,
-        # TODO: define custom prompt strategy
-        prompt_strategy: Optional[Literal["grid"]] = None,
         infer: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize a `SAM3DModuleLinear`.
@@ -239,7 +237,8 @@ class SAM3DModuleLinear(LightningModule):
         depth, _, H, W = projections.shape
         mask_3D = torch.zeros((depth, H, W), dtype=torch.bool, device=self.device)
 
-        infer_cfg = dict(self.hparams.get("infer", {}))
+        infer_cfg = cast(Optional[dict], self.hparams.get("infer", {}))
+        infer_cfg = infer_cfg if infer_cfg is not None else {}
         mode = infer_cfg.get("mode", "grid")
         grid_stride = int(infer_cfg.get("grid_stride", self.hparams["points_stride"]))
         # min_area = int(infer_cfg.get("min_area", 300))
@@ -274,10 +273,7 @@ class SAM3DModuleLinear(LightningModule):
         pass
 
     def model_step(
-        self,
-        batch: Union[
-            Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
-        ],
+        self, batch: Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
     ) -> Tuple[SegmentationLoss, torch.Tensor, torch.Tensor]:
         """Perform a single model step on a batch of data.
 
@@ -290,11 +286,7 @@ class SAM3DModuleLinear(LightningModule):
                     - A tensor of predictions.
                     - A tensor of target labels.
         """
-        if len(batch) == 2:
-            x, y = batch
-            urna = None
-        else:
-            x, y, urna = batch
+        x, y, urna = batch
         mask_3D = self.forward(x, urna_masks=urna)
 
         gd_loss = self.criterion(mask_3D, y)
@@ -316,7 +308,7 @@ class SAM3DModuleLinear(LightningModule):
         return loss, mask_3D, y
 
     def training_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
+        self, batch: Tuple[torch.Tensor, torch.Tensor, torch.Tensor], batch_idx: int
     ) -> torch.Tensor:
         """Perform a single training step on a batch of data from the training set.
 
@@ -347,7 +339,7 @@ class SAM3DModuleLinear(LightningModule):
         pass
 
     def test_step(
-        self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
+        self, batch: Tuple[torch.Tensor, torch.Tensor, torch.Tensor], batch_idx: int
     ) -> SegmentationForwardOutput:
         """Perform a single test step on a batch of data from the test set.
 
