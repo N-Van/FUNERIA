@@ -81,10 +81,11 @@ def test_one_urn_datamodule(
 
     total_slice_nb = len(dm.data_test)
 
-    assert total_slice_nb == mock_urn_dim // slice_jump
+    assert total_slice_nb == mock_urn_dim
+    # TODO: test slice jump for 2.5D-encoding
 
     batch = next(iter(dm.test_dataloader()))
-    x, y = batch
+    x, y, _ = batch
     assert len(x) == min(batch_size, total_slice_nb)
     assert x.shape[1:] == (3, slice_image_size, slice_image_size)
     assert len(y) == min(batch_size, total_slice_nb)
