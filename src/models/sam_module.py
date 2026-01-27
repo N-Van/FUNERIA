@@ -3,7 +3,7 @@ from typing import Any, Dict, Optional, Tuple, cast
 import numpy as np
 import torch
 from lightning import LightningModule
-from torchmetrics import MaxMetric, MeanMetric
+from torchmetrics import MaxMetric, MeanMetric, MinMetric
 from tqdm import tqdm
 from ultralytics.engine.results import Results
 from ultralytics.models import SAM
@@ -15,16 +15,20 @@ from src.models.types import SegmentationForwardOutput, SegmentationLoss
 class IntersectionOverUnion:
     """IOU for binary segmentation."""
 
-    def __call__(self, image1: torch.Tensor, image2: torch.Tensor):
+    def __call__(self, image1: torch.Tensor, image2: torch.Tensor, eps: float = 1e-6):
         """Return the loss value with the IOU.
 
         :param image1: shape (Z, S, S)
         :param image2: shape (Z, S, S)
         :return: the per-slice loss value (shape (Z,))
         """
-        return image1.logical_and(image2).sum(dim=(1, 2)) / image1.logical_or(image2).sum(
-            dim=(1, 2)
-        )
+        image1 = image1.bool()
+        image2 = image2.bool()
+        inter = image1.logical_and(image2).sum(dim=(1, 2)).float()
+        union = image1.logical_or(image2).sum(dim=(1, 2)).float()
+        return torch.where(
+            union > 0, inter / (union + eps), torch.ones_like(union)
+        )  # avoid  nan when union=0
 
 
 class DetachedSAM:
@@ -94,12 +98,13 @@ class SAM3DModuleLinear(LightningModule):
         # this line allows to access init params with 'self.hparams' attribute
         # also ensures init params will be stored in ckpt
         self.save_hyperparameters(ignore=["sam_checkpoint"], logger=False)
-
+        self._prev_pred = None
+        self._slice_step = 0
         self.detached_sam_model = DetachedSAM(sam_checkpoint)
-        self.test_gdloss = MeanMetric()
-        self.worst_gdloss = MaxMetric()
-        self.test_pwloss = MeanMetric()
-        self.worst_pwloss = MaxMetric()
+        self.test_gt_acc = MeanMetric()
+        self.worst_gt_acc = MaxMetric()
+        self.test_pw_acc = MeanMetric()
+        self.worst_pw_acc = MaxMetric()
 
         # loss function
         self.criterion = IntersectionOverUnion()
@@ -128,13 +133,19 @@ class SAM3DModuleLinear(LightningModule):
         return (cast(torch.Tensor, masks.data) > binary_treshold).sum(dim=0) > 0
 
     def _filter_points_by_mask(self, points, urna_mask_np):
-        # points: list[(x,y)]
+        """Filter the points according to the provided mask.
+
+        :param points: list[(x, y)]
+        """
         if urna_mask_np is None:
             return points
         return [(x, y) for (x, y) in points if urna_mask_np[y, x]]
 
     def _filter_masks(self, masks_bool: np.ndarray, urna_mask_np, min_area, max_area):
-        # masks_bool: (N,H,W) bool
+        """Filter the points according to all the filtering masks.
+
+        :param masks_bool: (N, H, W) bool ndarray
+        """
         if urna_mask_np is not None:
             masks_bool = np.logical_and(masks_bool, urna_mask_np[None, ...])
 
@@ -143,7 +154,7 @@ class SAM3DModuleLinear(LightningModule):
         return masks_bool[keep], areas, keep
 
     @torch.inference_mode()
-    def infer_one_projection(
+    def infer_one_slice(
         self,
         frame: torch.Tensor,  # (1,3,H,W) torch
         urna_mask: Optional[np.ndarray] = None,  # (H,W) bool
@@ -234,35 +245,43 @@ class SAM3DModuleLinear(LightningModule):
     def forward(
         self, projections: torch.Tensor, urna_masks: Optional[torch.Tensor] = None
     ) -> torch.Tensor:
+        """Forward method: convert all the projections into a segmented mask."""
         depth, _, H, W = projections.shape
         mask_3D = torch.zeros((depth, H, W), dtype=torch.bool, device=self.device)
 
         infer_cfg = cast(Optional[dict], self.hparams.get("infer", {}))
         infer_cfg = infer_cfg if infer_cfg is not None else {}
         mode = infer_cfg.get("mode", "grid")
-        grid_stride = int(infer_cfg.get("grid_stride", self.hparams["points_stride"]))
-        # min_area = int(infer_cfg.get("min_area", 300))
-        # max_area_ratio = float(infer_cfg.get("max_area_ratio", 0.05))
+        grid_stride = int(infer_cfg.get("grid_stride", 32))
+        min_area = int(infer_cfg.get("min_area", 300))
+        max_area_ratio = float(infer_cfg.get("max_area_ratio", 0.05))
         imgsz = infer_cfg.get("imgsz", None)
 
         bsz = int(self.hparams["points_batch_size"])
+        self.print(
+            f"[infer] mode={mode} stride={grid_stride} min_area={min_area} max_area_ratio={max_area_ratio} imgsz={imgsz}"
+        )
 
         for z in tqdm(range(depth), desc="Segmenting projections", unit="projs"):
             frame = projections[z : z + 1]  # (1,3,H,W)
             urna_mask_np = None
             if urna_masks is not None:
                 urna_mask_np = urna_masks[z].detach().cpu().numpy().astype(bool)
+            if urna_mask_np is not None and z == 0:
+                self.print("urna_mask coverage:", float(urna_mask_np.mean()))
 
-            masks_f, info = self.infer_one_projection(
+            masks_f, info = self.infer_one_slice(
                 frame,
                 urna_mask=urna_mask_np,
                 mode=mode,
                 grid_stride=grid_stride,
                 points_batch_size=bsz,
                 imgsz=imgsz,
-                # min_area=min_area,
-                # max_area_ratio=max_area_ratio,
+                min_area=min_area,
+                max_area_ratio=max_area_ratio,
             )
+            if z == 0:
+                self.print(f"[z=0] {info}")
             if masks_f.shape[0] > 0:
                 union = torch.from_numpy(masks_f.any(axis=0)).to(self.device)
                 mask_3D[z].logical_or_(union)
@@ -271,6 +290,11 @@ class SAM3DModuleLinear(LightningModule):
     def on_train_start(self) -> None:
         """Lightning hook that is called when training begins."""
         pass
+
+    def on_test_epoch_start(self):
+        """Init the output slice tracking variables for a sequential test epoch."""
+        self._prev_pred = None
+        self._slice_step = 0
 
     def model_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
@@ -288,23 +312,31 @@ class SAM3DModuleLinear(LightningModule):
         """
         x, y, urna = batch
         mask_3D = self.forward(x, urna_masks=urna)
+        gt_iou = self.criterion(mask_3D, y)  # (Z,)
 
-        gd_loss = self.criterion(mask_3D, y)
+        Z = mask_3D.shape[0]
+        pw_iou = torch.empty((Z,), device=self.device, dtype=gt_iou.dtype)
 
-        # second loss: pairwise-slice similarity
-        # we expect the two masks to be similar
-        second_similar_mask = mask_3D[1::2]
-        first_mask = mask_3D[::2][: second_similar_mask.shape[0]]
-        pairwise_loss = self.criterion(first_mask, second_similar_mask).repeat_interleave(
-            2, dim=0
-        )  # keep the same shape as the first loss
+        # WARN: the pairwise iou require the test step to be sequentially
+        # executed (no ddp)
+        if self._prev_pred is None:
+            pw_iou[0] = torch.tensor(1.0, device=self.device, dtype=gt_iou.dtype)
+        else:
+            pw_iou[0] = self.criterion(mask_3D[0:1], self._prev_pred).mean()
 
-        # loss, preds, targets
-        loss: SegmentationLoss = {
-            "pairwise_iou": pairwise_loss,
-            "ground_truth_iou": gd_loss,
-        }
-        # return the full mask for now
+        # compare slice i vs slice i-1
+        if Z > 1:
+            pw_iou[1:] = self.criterion(mask_3D[1:], mask_3D[:-1])
+
+        # update prev
+        self._prev_pred = mask_3D[-1:].detach()
+
+        loss = SegmentationLoss(
+            {
+                "ground_truth_iou": gt_iou,  # (Z,)
+                "pairwise_iou": pw_iou,  # (Z,)
+            }
+        )
         return loss, mask_3D, y
 
     def training_step(
@@ -349,16 +381,39 @@ class SAM3DModuleLinear(LightningModule):
         """
         loss, preds, targets = self.model_step(batch)
 
-        # update and log metrics
-        self.test_gdloss(loss["ground_truth_iou"].mean())
-        self.worst_gdloss(loss["pairwise_iou"].mean())
-        self.test_pwloss(loss["ground_truth_iou"].mean())
-        self.worst_pwloss(loss["pairwise_iou"].mean())
-        self.log("test/loss", self.test_gdloss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("test/worst_loss", self.worst_gdloss, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("test/pwloss", self.test_pwloss, on_step=False, on_epoch=True, prog_bar=True)
+        gt_vec = loss["ground_truth_iou"]  # (Z,)
+        pw_vec = loss["pairwise_iou"]  # (Z,)
+        client = self.logger.experiment  # type: ignore
+        run_id = self.logger.run_id  # type: ignore
+
+        for i in range(gt_vec.shape[0]):
+            step = int(self._slice_step)
+            client.log_metric(
+                run_id,
+                "test/gd_iou_slice",
+                float(gt_vec[i].detach().cpu().item()),
+                step=step,
+            )
+            client.log_metric(
+                run_id,
+                "test/pw_iou_slice",
+                float(pw_vec[i].detach().cpu().item()),
+                step=step,
+            )
+            self._slice_step += 1
+
+        # summary
+        self.test_gt_acc(gt_vec.mean())
+        self.worst_gt_acc(gt_vec.min())
+        self.test_pw_acc(pw_vec.mean())
+        self.worst_pw_acc(pw_vec.min())
+        self.log("test/gt_iou", self.test_gt_acc, on_step=False, on_epoch=True, prog_bar=True)
         self.log(
-            "test/worst_pwloss", self.test_pwloss, on_step=False, on_epoch=True, prog_bar=True
+            "test/worst_gt_iou", self.worst_gt_acc, on_step=False, on_epoch=True, prog_bar=True
+        )
+        self.log("test/pw_iou", self.test_pw_acc, on_step=False, on_epoch=True, prog_bar=True)
+        self.log(
+            "test/worst_pw_iou", self.worst_pw_acc, on_step=False, on_epoch=True, prog_bar=True
         )
 
         return SegmentationForwardOutput(preds=preds, loss=loss)
