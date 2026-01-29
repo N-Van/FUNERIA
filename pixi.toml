@@ -51,5 +51,5 @@ zensical = "*"
 
 [environments]
 dev = ["dev", "docs"]
-docs = ["docs"]
+docs = { features = ["docs"], no-default-feature = true }
 napari = { features = ["napari"], no-default-feature = true }

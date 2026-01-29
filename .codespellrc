@@ -1,2 +1,2 @@
 [codespell]
-skip = pixi.lock
+skip = pixi.lock,docs/*,zensical.toml
