@@ -1,25 +1,11 @@
 from pathlib import Path
 from typing import Literal
 
-import numpy as np
 import pytest
-import tifffile
 import torch
 
 from src.data.one_urn_datamodule import OneUrnDataModule
-
-
-def generate_mock_urn_data(
-    data_dir: str, filestem: str, gd_filestem: str, urn_shape: tuple[int, int, int]
-) -> tuple[Path, Path]:
-    """Write a mock urn in a file and a mock ground truth in another."""
-    urn = np.random.randint(0, 256, urn_shape)
-    urn_gd = (np.random.rand(*urn_shape) > 0.5) * 255
-    urn_path = Path(data_dir) / f"{filestem}.tiff"
-    urn_gd_path = Path(data_dir) / f"{gd_filestem}.tiff"
-    tifffile.imwrite(urn_path, urn)
-    tifffile.imwrite(urn_gd_path, urn_gd)
-    return urn_path, urn_gd_path
+from tests.helpers.mock_urn import delete_mock_urn, generate_mock_urn_data
 
 
 @pytest.mark.slow
@@ -93,5 +79,4 @@ def test_one_urn_datamodule(
     assert x.dtype == torch.float32
     assert y.dtype == torch.bool
 
-    mock_urn.unlink(True)
-    mock_urn_gd.unlink(True)
+    delete_mock_urn(mock_urn, mock_urn_gd)

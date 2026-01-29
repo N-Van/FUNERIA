@@ -432,3 +432,7 @@ class SAM3DModuleLinear(LightningModule):
         :param stage: Either `"fit"`, `"validate"`, `"test"`, or `"predict"`.
         """
         pass
+
+    def configure_optimizers(self):
+        # TODO: set it for the training
+        return None
