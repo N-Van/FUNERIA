@@ -50,6 +50,6 @@ napari = "*"
 zensical = "*"
 
 [environments]
-dev = ["dev"]
+dev = ["dev", "docs"]
 docs = ["docs"]
 napari = { features = ["napari"], no-default-feature = true }
