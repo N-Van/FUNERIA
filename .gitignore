@@ -156,3 +156,6 @@ configs/local/default.yaml
 outputs/
 weights/
 configs/data/urn.local.yaml
+# pixi environments
+.pixi/*
+!.pixi/config.toml

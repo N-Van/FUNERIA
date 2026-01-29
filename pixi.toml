@@ -1,0 +1,10 @@
+[workspace]
+authors = ["Convolutio <79534557+Convolutio@users.noreply.github.com>"]
+channels = ["conda-forge"]
+name = "FUNERIA"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
