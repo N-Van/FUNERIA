@@ -1,3 +1,7 @@
+---
+icon: lucide/fan
+---
+
 # Usage
 
 Une segmentation avec le modèle SAM de l'urne s'effectue avec ces étapes

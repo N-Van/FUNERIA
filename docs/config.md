@@ -1,3 +1,7 @@
+---
+icon: lucide/file-cog
+---
+
 # Hyperparamétrage de l'expérience
 
 Dans cette page, une introduction à l'usage d'Hydra va être établi pour décrire

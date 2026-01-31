@@ -45,8 +45,7 @@ Copyright &copy; 2026 ENSEIRB-MATMECA,ICMCB
 #
 # Read more: https://zensical.org/docs/setup/navigation/
 nav = [
-  { "Get started" = "index.md" },
-  { "Markdown in 5min" = "markdown.md" },
+  { "Introduction" = "index.md" },
   { "Installation" = [
      "install/index.md",
      "install/pixi.md",
