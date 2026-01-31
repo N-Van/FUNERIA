@@ -54,7 +54,11 @@ nav = [
      "install/conda.md",
   ]},
   { "Usage" = "usage.md" },
-  { "Configuration" = "config.md" }
+  { "Configuration" = "config.md" },
+  { "Contributions" = [
+     "preprocessing.md",
+     "train.md"
+  ]}
 ]
 
 # With the "extra_css" option you can add your own CSS styling to customize
