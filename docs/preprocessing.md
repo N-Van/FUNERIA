@@ -43,4 +43,4 @@ Les résultats empiriques confirment que le masquage binaire précis (Approche B
 
 
 ## Implémentation
-Ces méthodes de preprocessing sont intégrées dans le pipeline. Le fichier 'src/dataset_25d.py' et d'autres intégrent la fonctionnalité 25d, et le dossier scripts/metrics_experiments/ rassemble les différentes expérimentations liées à ces méthodes (cela n'est pas intégré dans le pipeline).
+Ces méthodes de preprocessing sont intégrées dans le pipeline. Le fichier `src/dataset_25d.py` et d'autres intégrent la fonctionnalité 25d, et le dossier `scripts/metrics_experiments/` rassemble les différentes expérimentations liées à ces méthodes (cela n'est pas intégré dans le pipeline).
