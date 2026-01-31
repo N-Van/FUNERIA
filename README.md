@@ -21,98 +21,30 @@ AI assisted segmentation of CT-scanned funerary urns.
 
 ## Installation
 
-### Pip
+See the [Installation tutorial](./docs/install/index.md).
 
-```bash
-# clone project
-git clone https://github.com/YourGithubName/FUNERIA
-cd FUNERIA
-
-# [OPTIONAL] create conda environment
-conda create -n FUNERIA python=3.9
-conda activate FUNERIA
-
-# install pytorch according to instructions
-# https://pytorch.org/get-started/
-
-# install requirements
-pip install -r requirements.txt
-```
-
-### Conda
-
-```bash
-# clone project
-git clone https://github.com/YourGithubName/FUNERIA
-cd FUNERIA
-
-# create conda environment and install dependencies
-conda env create -f environment.yaml -n FUNERIA
-
-# activate conda environment
-conda activate FUNERIA
-```
-
-### Development tools
-
-Enable the pre-commit checks and reformatting to always push conform code
+You might want to install first the [`zensical`](https://zensical.org/docs/get-started/#installation) package to serve the documentation.
 
 ```sh
-# run this once in your repository
-# inside your virtual environment
-pip install pre-commit
-pre-commit install
+# with pixi, only install zensical
+# and go to the virtual environment with the package
+pixi shell -e docs
+
+# with pip (e.g. inside your venv)
+pip install zensical
+
+# with conda/mamba
+conda install zensical
 ```
-
-## How to run
-
-1. Set the path of the tiff file of your urn in `configs/data/urn.yml`
-
-2. Evaluate the model on your urn:
-
-   ```sh
-   # gpu for the trainer is recommended
-   python src/eval.py trainer=gpu logger=mlflow
-   # or make eval
-   ```
-
-3. You can inspect the run in MLFlow
 
 ```sh
-cd logs/mlflow
-mlflow ui
+# documentation served on http://localhost:8000
+zensical serve
 ```
 
-You can override any parameter from command line like this
+The installation tutorial is in the served documentation (in French), in the `/install/`
+section.
 
-```bash
-python src/eval.py data.projection_number=64
-python src/eval.py experiment=experiment_name.yaml
-```
-
-## How to crop your volume
-
-A cli tool has been developed in the `src/crop_volume.py` script.
-
-```sh
-python src/crop_volume.py --help
-```
-
-## How to visualize your volumes
-
-We recommend to use [`napari`](https://napari.org). This conda environment can
-be installed with the line below:
-
-```sh
-conda env create -f napari-env.yaml -n napari-env
-```
-
-To open your tiff image
-
-```sh
-conda activate napari-env
-napari your-volume.tiff
-```
 
 ## License
 

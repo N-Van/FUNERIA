@@ -13,3 +13,10 @@ Plusieurs méthodes d'installation sont possibles :
 1. [Pixi](./pixi.md)
 2. [Pip](./pip.md) (*napari non-installable avec cet outil*)
 3. [Conda/Mamba](./conda.md) (*pilote CUDA obligatoire*)
+
+## Outils de développement
+
+```sh
+# be sure pre-commit is installed in your virtual environment
+pre-commit install
+```
