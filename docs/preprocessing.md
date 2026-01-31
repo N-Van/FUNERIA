@@ -42,3 +42,5 @@ L'objectif de cette stratégie est de contraindre SAM à générer la grille de 
 Les résultats empiriques confirment que le masquage binaire précis (Approche B) est nettement supérieur. Non seulement il réduit le nombre de faux positifs, mais il concentre également les capacités du modèle sur les objets archéologiques d'intérêt, rendant la pipeline de segmentation plus robuste et plus efficace.
 
 
+## Implémentation
+Ces méthodes de preprocessing sont intégrées dans le pipeline. Le fichier 'src/dataset_25d.py' et d'autres intégrent la fonctionnalité 25d, et le dossier scripts/metrics_experiments/ rassemble les différentes expérimentations liées à ces méthodes (cela n'est pas intégré dans le pipeline).
