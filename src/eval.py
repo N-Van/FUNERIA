@@ -1,8 +1,9 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, cast
 
 import hydra
 import rootutils
-from lightning import LightningDataModule, LightningModule, Trainer
+from codecarbon import EmissionsTracker
+from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
 
@@ -27,6 +28,7 @@ rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 from src.utils import (
     RankedLogger,
     extras,
+    instantiate_callbacks,
     instantiate_loggers,
     log_hyperparameters,
     task_wrapper,
@@ -45,7 +47,9 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     :param cfg: DictConfig configuration composed by Hydra.
     :return: Tuple[dict, dict] with metrics and dict with all instantiated objects.
     """
-    assert cfg.ckpt_path
+    log.info(f"Starting the codecarbon tracker (results in <{cfg.extras.codecarbon.output_file}>)")
+    emission_tracker: EmissionsTracker = hydra.utils.instantiate(cfg.extras.codecarbon)
+    emission_tracker.start()
 
     log.info(f"Instantiating datamodule <{cfg.data._target_}>")
     datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
@@ -53,11 +57,14 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     log.info(f"Instantiating model <{cfg.model._target_}>")
     model: LightningModule = hydra.utils.instantiate(cfg.model)
 
+    log.info("Instantiating callbacks...")
+    callbacks: List[Callback] = instantiate_callbacks(cfg.get("callbacks"))
+
     log.info("Instantiating loggers...")
     logger: List[Logger] = instantiate_loggers(cfg.get("logger"))
 
     log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
-    trainer: Trainer = hydra.utils.instantiate(cfg.trainer, logger=logger)
+    trainer: Trainer = hydra.utils.instantiate(cfg.trainer, callbacks=callbacks, logger=logger)
 
     object_dict = {
         "cfg": cfg,
@@ -72,12 +79,36 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         log_hyperparameters(object_dict)
 
     log.info("Starting testing!")
-    trainer.test(model=model, datamodule=datamodule, ckpt_path=cfg.ckpt_path)
+    trainer.test(model=model, datamodule=datamodule)
 
     # for predictions use trainer.predict(...)
-    # predictions = trainer.predict(model=model, dataloaders=dataloaders, ckpt_path=cfg.ckpt_path)
+    # predictions = trainer.predict(model=model, dataloaders=dataloaders)
 
     metric_dict = trainer.callback_metrics
+
+    emissions = cast(float, emission_tracker.stop())
+    log.info("-----------------------------------------------------")
+    log.info(
+        "Total CPU energy consumption CodeCarbon (Process): "
+        + str(emission_tracker._total_cpu_energy.kWh * 1000)
+        + " Wh"
+    )
+    log.info(
+        "Total RAM energy consumption CodeCarbon (Process): "
+        + str(emission_tracker._total_ram_energy.kWh * 1000)
+        + " Wh"
+    )
+    log.info(
+        "Total GPU energy consumption CodeCarbon (Process): "
+        + str(emission_tracker._total_gpu_energy.kWh * 1000)
+        + " Wh"
+    )
+    log.info(
+        "Total Energy consumption CodeCarbon (Process): "
+        + str(emission_tracker._total_energy.kWh * 1000)
+        + " Wh"
+    )
+    log.info("Emissions by CodeCarbon (Process): " + str(emissions * 1000) + " gCO2e")
 
     return metric_dict, object_dict
 

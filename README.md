@@ -1,15 +1,15 @@
-
-
 ______________________________________________________________________
 
 <div align="center">
 
-#   FUNERIA
+# FUNERIA
 
 <a href="https://pytorch.org/get-started/locally/"><img alt="PyTorch" src="https://img.shields.io/badge/PyTorch-ee4c2c?logo=pytorch&logoColor=white"></a>
 <a href="https://pytorchlightning.ai/"><img alt="Lightning" src="https://img.shields.io/badge/-Lightning-792ee5?logo=pytorchlightning&logoColor=white"></a>
 <a href="https://hydra.cc/"><img alt="Config: Hydra" src="https://img.shields.io/badge/Config-Hydra-89b8cd"></a>
 <a href="https://github.com/ashleve/lightning-hydra-template"><img alt="Template" src="https://img.shields.io/badge/-Lightning--Hydra--Template-017F2F?style=flat&logo=github&labelColor=gray"></a><br>
+<a href="https://mlflow.org/docs/latest/ml/deep-learning/pytorch/"><img alt="MLFlow" src="https://img.shields.io/badge/mlflow-%23d9ead3.svg?style=for-the-badge&logo=numpy&logoColor=blue"></a>
+
 [![Paper](http://img.shields.io/badge/paper-arxiv.1001.2234-B31B1B.svg)](https://www.nature.com/articles/nature14539)
 [![Conference](http://img.shields.io/badge/AnyConference-year-4b44ce.svg)](https://papers.nips.cc/paper/2020)
 
@@ -21,7 +21,7 @@ AI assisted segmentation of CT-scanned funerary urns.
 
 ## Installation
 
-#### Pip
+### Pip
 
 ```bash
 # clone project
@@ -39,7 +39,7 @@ conda activate FUNERIA
 pip install -r requirements.txt
 ```
 
-#### Conda
+### Conda
 
 ```bash
 # clone project
@@ -53,29 +53,67 @@ conda env create -f environment.yaml -n FUNERIA
 conda activate FUNERIA
 ```
 
-## How to run
+### Development tools
 
-Train model with default configuration
+Enable the pre-commit checks and reformatting to always push conform code
 
-```bash
-# train on CPU
-python src/train.py trainer=cpu
-
-# train on GPU
-python src/train.py trainer=gpu
+```sh
+# run this once in your repository
+# inside your virtual environment
+pip install pre-commit
+pre-commit install
 ```
 
-Train model with chosen experiment configuration from [configs/experiment/](configs/experiment/)
+## How to run
 
-```bash
-python src/train.py experiment=experiment_name.yaml
+1. Set the path of the tiff file of your urn in `configs/data/urn.yml`
+
+2. Evaluate the model on your urn:
+
+   ```sh
+   # gpu for the trainer is recommended
+   python src/eval.py trainer=gpu logger=mlflow
+   # or make eval
+   ```
+
+3. You can inspect the run in MLFlow
+
+```sh
+cd logs/mlflow
+mlflow ui
 ```
 
 You can override any parameter from command line like this
 
 ```bash
-python src/train.py trainer.max_epochs=20 data.batch_size=64
+python src/eval.py data.projection_number=64
+python src/eval.py experiment=experiment_name.yaml
 ```
+
+## How to crop your volume
+
+A cli tool has been developed in the `src/crop_volume.py` script.
+
+```sh
+python src/crop_volume.py --help
+```
+
+## How to visualize your volumes
+
+We recommend to use [`napari`](https://napari.org). This conda environment can
+be installed with the line below:
+
+```sh
+conda env create -f napari-env.yaml -n napari-env
+```
+
+To open your tiff image
+
+```sh
+conda activate napari-env
+napari your-volume.tiff
+```
+
 ## License
 
 FUNERIA is licensed under the MIT License.

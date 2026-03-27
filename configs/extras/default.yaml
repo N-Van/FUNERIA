@@ -6,3 +6,8 @@ enforce_tags: True
 
 # pretty print config tree at the start of the run using Rich library
 print_config: True
+
+codecarbon:
+  _target_: codecarbon.EmissionsTracker
+  output_file: ${paths.data_dir}/emissions_zeroshot.csv
+  log_level: CRITICAL

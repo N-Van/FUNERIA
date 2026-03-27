@@ -1,0 +1,9 @@
+# @package _global_
+
+defaults:
+  - _self_
+  - my_param: "hello"
+
+task_name: "test"
+
+tags: ["dev"]

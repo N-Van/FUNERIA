@@ -8,7 +8,6 @@
 name: myenv
 
 channels:
-  - pytorch
   - conda-forge
   - defaults
 
@@ -22,10 +21,7 @@ channels:
 
 dependencies:
   - python=3.10
-  - pytorch=2.*
-  - torchvision=0.*
   - lightning=2.*
-  - torchmetrics=0.*
   - hydra-core=1.*
   - rich=13.*
   - pre-commit=3.*
@@ -45,6 +41,12 @@ dependencies:
   # - aim>=3.16.2 # no lower than 3.16.2, see https://github.com/aimhubio/aim/issues/2550
 
   - pip>=23
+  - pip:
+      # change the url if you have a different version of cuda
+      - --index-url=https://download.pytorch.org/whl/cu130
+      - torch=2.*
+      - torchvision=0.*
+      - torchmetrics=0.*
   - pip:
       - hydra-optuna-sweeper
       - hydra-colorlog
