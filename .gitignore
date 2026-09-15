@@ -159,3 +159,10 @@ configs/data/urn.local.yaml
 # pixi environments
 .pixi/*
 !.pixi/config.toml
+
+# MLflow local database and metadata
+mlflow.db
+mlflow.db-journal
+mlflow.db-wal
+mlruns/
+artifacts/
