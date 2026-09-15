@@ -7,6 +7,9 @@ version = "0.1.0"
 
 [tasks]
 
+[activation]
+env = { PYTHONNOUSERSITE = "1" }
+
 [dependencies]
 python = "3.10.*"
 

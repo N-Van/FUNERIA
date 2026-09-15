@@ -25,8 +25,7 @@ Hydra propose trois méthodes qui peuvent être combinées :
    recommandé pour reproduire une surcharge d'hyperparamètre menant à une
 segmentation intéressante. Il faut écrire ce fichier `.yaml` dans le dossier
 `configs/experiment`. Voir le fichier `configs/experiment/example.yaml` qui
-exécute une segmentation de l'image avec un encodage 2.5D et un slice jump de
-3.
+exécute une segmentation de l'image avec un encodage 2.5D et un slice jump de 3, 5 et 15 slices.
 
     ```sh
     # si le fichier s'appelle example.yaml
@@ -69,7 +68,7 @@ en faisant varier des hyperparamètres données. Deux méthodes possibles:
 
 Les hyperparamètres importants sont des arguments de construction de classes
 python instanciées à partir du bon fichier `.yaml` Le docstring du
-constructeur de la classe dans le bon fichier python situé sans `src/`
+constructeur de la classe dans le bon fichier python situé dans `src/`
 constitue donc la meilleure référence.
 
 ### Configuration de l'encodage de l'image pour SAM
