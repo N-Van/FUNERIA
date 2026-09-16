@@ -10,6 +10,9 @@ version = "0.1.0"
 [activation]
 env = { PYTHONNOUSERSITE = "1" }
 
+[system-requirements]
+cuda = "12.4"
+
 [dependencies]
 python = "3.10.*"
 
@@ -38,6 +41,9 @@ rich = "*"        # beautiful text formatting in terminal
 tqdm = "*"        # progress bars
 pandas = "*"      # data manipulation
 ipykernel = "*"   # for adding the environment in jupyter
+
+[pypi-options]
+extra-index-urls = ["https://download.pytorch.org/whl/cu124"]
 
 [feature.dev.pypi-dependencies]
 pre-commit = "*"  # hooks for applying linters on commit
