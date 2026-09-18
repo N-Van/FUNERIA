@@ -230,7 +230,7 @@ class SAM3DModuleLinear(LightningModule):
         masks = np.concatenate(
             [m if m.ndim == 3 else m[None, ...] for m in all_masks], axis=0
         )  # (N,H,W)
-        masks_f, areas, keep = self._filter_masks(masks, urna_mask, min_area, max_area)
+        masks_f, areas, keep = self._filter_masks(masks, urna_mask, min_area, max_area) # FIXME: what if there is no mask?
 
         info = {
             "n_raw": int(masks.shape[0]),
