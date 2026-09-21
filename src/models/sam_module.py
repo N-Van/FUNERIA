@@ -148,8 +148,10 @@ class SAM3DModuleLinear(LightningModule):
         """
         if urna_mask_np is not None:
             masks_bool = np.logical_and(masks_bool, urna_mask_np[None, ...])
-
-        areas = masks_bool.reshape(masks_bool.shape[0], -1).sum(axis=1)
+        if len(masks_bool)!=0:
+            areas = masks_bool.reshape(masks_bool.shape[0], -1).sum(axis=1)
+        else:
+            areas = np.array([], dtype=int)
         keep = (areas >= min_area) & (areas <= max_area)
         return masks_bool[keep], areas, keep
 
